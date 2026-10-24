@@ -29,4 +29,3 @@ def get_thai_standards():
         'description': 'Comprehensive Thai building code implementation'
     }
 
-print(f"🇹🇭 Thai Building Code Standards v{__version__} loaded")

@@ -98,7 +98,13 @@ class ThaiMinistryRegulation2566:
         self.provincial_zones = self._initialize_provincial_zones()
     
     def _initialize_provincial_zones(self) -> Dict[str, Dict[str, Any]]:
-        """Initialize Thai provincial zones for wind and seismic loads"""
+        """DEPRECATED illustrative zoning table - do not use for design.
+
+        get_wind_zone_data()/get_seismic_zone_data() now delegate to
+        loads/wind_loads.py and loads/seismic_loads.py, which are the single
+        source of truth. This table is kept only for report text and is known
+        to disagree with those modules.
+        """
         return {
             'wind_zones': {
                 'zone_1': {
@@ -246,29 +252,32 @@ class ThaiMinistryRegulation2566:
         return self.load_combinations.get_phi_factor(failure_mode)
     
     # Provincial Zone Methods
+    # These delegate to the dedicated load modules so the province -> zone mapping
+    # and the design values have exactly one source of truth
+    # (loads/wind_loads.py, loads/seismic_loads.py). The duplicate table that used
+    # to live here disagreed with both - Bangkok 35 m/s vs 25 m/s, Chiang Mai
+    # 0.15g vs 0.40g - and silently understated the design actions.
     def get_wind_zone_data(self, province: str) -> Optional[Dict[str, Any]]:
-        """Get wind zone data for province"""
-        for zone_id, zone_data in self.provincial_zones['wind_zones'].items():
-            if province in zone_data['provinces']:
-                return {
-                    'zone_id': zone_id,
-                    'wind_speed': zone_data['wind_speed'],
-                    'description_thai': zone_data['description_thai'],
-                    'description_english': zone_data['description_english']
-                }
-        return None
+        """Get wind zone data for province (delegates to ThaiWindLoads)"""
+        from .loads.wind_loads import ThaiWindLoads
+        
+        zone, wind_speed, description = ThaiWindLoads().get_wind_zone_for_province(province)
+        return {
+            'zone_id': 'zone_%s' % zone.value,
+            'wind_speed': wind_speed,
+            'description_english': description
+        }
     
     def get_seismic_zone_data(self, province: str) -> Optional[Dict[str, Any]]:
-        """Get seismic zone data for province"""
-        for zone_id, zone_data in self.provincial_zones['seismic_zones'].items():
-            if province in zone_data['provinces']:
-                return {
-                    'zone_id': zone_id,
-                    'pga': zone_data['pga'],
-                    'description_thai': zone_data['description_thai'],
-                    'description_english': zone_data['description_english']
-                }
-        return None
+        """Get seismic zone data for province (delegates to ThaiSeismicLoads)"""
+        from .loads.seismic_loads import ThaiSeismicLoads
+        
+        data = ThaiSeismicLoads().get_seismic_zone_data(province)
+        return {
+            'zone_id': 'zone_%s' % data['seismic_zone'].value,
+            'pga': data['peak_ground_acceleration'],
+            'description_english': data['zone_description']
+        }
     
     # Comprehensive Compliance Check
     def check_project_compliance(self, project_data: ThaiProjectData) -> List[ThaiComplianceResult]:

@@ -168,12 +168,14 @@ class ThaiConcrete(ConcreteMaterial):
         self._validate_thai_requirements()
     
     def _parse_grade(self, grade: str) -> ThaiConcreteGrade:
-        """Parse grade string to enum"""
+        """Parse grade string to enum, case-insensitively.
+
+        Accepts 'Fc210', 'FC210' and 'fc210'. The previous implementation
+        re-cased the upper-cased string back to 'Fc210' and then compared it
+        against an upper-cased enum value, so no spelling ever matched and
+        every create_fcXXX() factory raised ValueError.
+        """
         grade_upper = grade.upper()
-        
-        # Handle various formats
-        if grade_upper.startswith('FC'):
-            grade_upper = grade_upper.replace('FC', 'Fc')
         
         for thai_grade in ThaiConcreteGrade:
             if thai_grade.value.upper() == grade_upper:
@@ -279,7 +281,7 @@ class ThaiConcrete(ConcreteMaterial):
         float
             Compressive strength (ksc)
         """
-        return self.fc_prime * 1000 / 9.807  # Convert MPa to ksc
+        return self.fc_prime * 1000 / 98.0665  # MPa -> ksc; 1 ksc = 1 kgf/cm2 = 0.0980665 MPa
     
     def get_mix_requirements(self) -> Dict[str, Any]:
         """
@@ -431,9 +433,9 @@ def create_fc350() -> ThaiConcrete:
 
 # Unit conversion utilities
 def mpa_to_ksc(mpa: float) -> float:
-    """Convert MPa to ksc (Thai traditional unit)"""
-    return mpa * 1000 / 9.807
+    """Convert MPa to ksc (Thai traditional unit); 1 ksc = 1 kgf/cm2 = 0.0980665 MPa"""
+    return mpa * 1000 / 98.0665
 
 def ksc_to_mpa(ksc: float) -> float:
-    """Convert ksc to MPa"""
-    return ksc * 9.807 / 1000
+    """Convert ksc to MPa; 1 ksc = 1 kgf/cm2 = 0.0980665 MPa"""
+    return ksc * 98.0665 / 1000

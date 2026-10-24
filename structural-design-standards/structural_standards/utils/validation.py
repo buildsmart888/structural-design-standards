@@ -14,7 +14,7 @@ import re
 from typing import Any, List, Optional, Union, Tuple
 from enum import Enum
 
-class ValidationError(Exception):
+class ValidationError(ValueError):
     """Custom exception for validation errors"""
     pass
 

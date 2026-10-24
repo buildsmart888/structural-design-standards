@@ -516,7 +516,7 @@ class ACI318M25FootingDesign(MemberDesign):
         critical_distance = column_size/2 + d
         
         cantilever = (geometry.length - critical_distance * 2) / 2
-        Vu = qu * cantilever * geometry.width / 1000
+        Vu = qu * cantilever * geometry.width / 1e6  # kN (qu in kN/m², dims in mm)
         
         Vc = 0.17 * math.sqrt(self.fc) * geometry.width * d / 1000
         phi_Vc = self.phi_shear * Vc
@@ -546,7 +546,7 @@ class ACI318M25FootingDesign(MemberDesign):
         critical_distance = column_size/2 + d
         
         cantilever = (geometry.width - critical_distance * 2) / 2
-        Vu = qu * cantilever * geometry.length / 1000
+        Vu = qu * cantilever * geometry.length / 1e6  # kN
         
         Vc = 0.17 * math.sqrt(self.fc) * geometry.length * d / 1000
         phi_Vc = self.phi_shear * Vc
@@ -578,7 +578,7 @@ class ACI318M25FootingDesign(MemberDesign):
         bo = 4 * (column_size + d)
         
         critical_area = (column_size + d)**2
-        upward_force = qu * (geometry.area - critical_area) / 1000
+        upward_force = qu * (geometry.area - critical_area) / 1e6  # kN
         Vu = min(upward_force, Pu)
         
         Vc = 0.33 * math.sqrt(self.fc) * bo * d / 1000

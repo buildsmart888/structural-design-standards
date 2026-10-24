@@ -89,11 +89,11 @@ Repository = "https://github.com/your-org/structural-design-standards"
 "Bug Tracker" = "https://github.com/your-org/structural-design-standards/issues"
 Changelog = "https://github.com/your-org/structural-design-standards/blob/main/CHANGELOG.md"
 
-[project.scripts]
-structural-standards = "structural_standards.cli:main"
+# No console script: structural_standards is a library and has no cli module.
 
-[tool.setuptools]
-packages = ["structural_standards"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["structural_standards*"]
 
 [tool.setuptools.package-data]
 structural_standards = [
@@ -168,6 +168,12 @@ markers = [
     "unit: marks tests as unit tests",
     "aci: marks tests related to ACI standards",
     "thai: marks tests related to Thai standards",
+    "utils: marks tests for the utils package",
+    "materials: marks material property tests",
+    "members: marks member design tests",
+    "load_combinations: marks load combination tests",
+    "ministry_2566: marks Thai Ministry Regulation B.E. 2566 tests",
+    "cross_standard: marks cross-standard comparison tests",
 ]
 
 # Coverage configuration

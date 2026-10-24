@@ -16,7 +16,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
-from ....utils.validation import StructuralValidator, validate_positive
+from ...utils.validation import StructuralValidator, validate_positive
 
 
 class ThaiEnvironmentType(Enum):

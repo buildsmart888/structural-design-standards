@@ -246,15 +246,17 @@ class ACI318M25Concrete(ConcreteMaterial):
             Dictionary of φ factors for different failure modes
         """
         return {
-            'tension_controlled': 0.90,           # Section 21.2.2(a)
-            'compression_controlled_tied': 0.65,   # Section 21.2.2(b)
-            'compression_controlled_spiral': 0.75, # Section 21.2.2(c)
-            'shear_and_torsion': 0.75,            # Section 21.2.3
-            'bearing': 0.65,                      # Section 21.2.4
-            'post_tensioned_anchorage': 0.85,     # Section 21.2.5
-            'strut_and_tie_struts': 0.75,         # Section 21.2.6(a)
-            'strut_and_tie_ties': 0.90,           # Section 21.2.6(b)
-            'strut_and_tie_nodal': 0.80           # Section 21.2.6(c)
+            'tension_controlled': 0.90,            # Table 21.2.2
+            'compression_controlled_tied': 0.65,   # Table 21.2.2
+            'compression_controlled_spiral': 0.75, # Table 21.2.2
+            'shear_and_torsion': 0.75,             # Table 21.2.1(b), (c)
+            'bearing': 0.65,                       # Table 21.2.1(d)
+            'post_tensioned_anchorage': 0.85,      # Table 21.2.1(h)
+            # Table 21.2.1(g): struts, ties, nodal zones and bearing areas
+            # designed with the strut-and-tie model of Ch. 23 all use 0.75
+            'strut_and_tie_struts': 0.75,
+            'strut_and_tie_ties': 0.75,
+            'strut_and_tie_nodal': 0.75
         }
     
     def get_design_properties(self) -> Dict[str, float]:

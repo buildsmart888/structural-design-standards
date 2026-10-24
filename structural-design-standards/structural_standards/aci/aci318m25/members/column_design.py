@@ -190,15 +190,18 @@ class ACI318M25ColumnDesign(ColumnDesign):
         
         As_required = max(As_min, min(As_target, As_max))
         
-        # Calculate axial capacity
-        if geometry.cross_section == "circular":
-            phi = self.phi_compression_spiral
-        else:
-            phi = self.phi_compression
+        # Calculate axial capacity. ACI 318M-25 selects both φ and Pn,max from the
+        # type of transverse reinforcement (Table 21.2.2 and Table 22.4.2.1), not
+        # from the shape of the cross-section, so the spiral case must be requested
+        # explicitly via ColumnGeometry.transverse_reinforcement.
+        transverse = getattr(geometry, 'transverse_reinforcement', 'ties')
+        spiral = transverse in ('spiral', 'spirals')
+        phi = self.phi_compression_spiral if spiral else self.phi_compression
         
-        # Pure axial capacity (ACI 318M-25 Section 22.4)
-        Po = 0.85 * self.fc * (Ag - As_required) + self.fy * As_required  # N
-        phi_Pn_max = phi * 0.85 * Po  # Maximum usable strength for tied columns
+        # Pure axial capacity (ACI 318M-25 Eq. 22.4.2.2), fy limited to 550 MPa
+        Po = 0.85 * self.fc * (Ag - As_required) + min(self.fy, 550.0) * As_required  # N
+        # Table 22.4.2.1: Pn,max = 0.80Po (tied) or 0.85Po (spirally reinforced)
+        phi_Pn_max = phi * (0.85 if spiral else 0.80) * Po
         
         # Check if axial load is within limits
         if math.sqrt(Mux**2 + Muy**2) < 0.1 * phi_Pn_max:

@@ -249,7 +249,3 @@ EFFECTIVE_DATE = '2023-12-01'
 AUTHORITY = 'กระทรวงมหาดไทย'
 
 # Display package information when imported
-print(f"📋 {REGULATION_NAME_THAI}")
-print(f"📋 {REGULATION_NAME_ENGLISH}")
-print(f"✅ Thai Ministry Regulation B.E. 2566 Package v{__version__} loaded successfully")
-print(f"🏗️  Ready for Thai structural design standards compliance checking")

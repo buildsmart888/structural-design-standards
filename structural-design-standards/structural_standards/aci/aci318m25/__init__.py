@@ -50,15 +50,15 @@ from .members.column_design import (
     ColumnReinforcement
 )
 
-# Load combinations - temporarily commented due to import issues
-# from .load_combinations import (
-#     ACI318M25LoadCombinations,
-#     LoadType,
-#     LoadDuration,
-#     CombinationType,
-#     Load,
-#     LoadCombination
-# )
+# Load combinations
+from .load_combinations import (
+    ACI318M25LoadCombinations,
+    LoadType as CombinationLoadType,
+    LoadDuration,
+    CombinationType,
+    Load,
+    LoadCombination
+)
 
 # Version info
 __version__ = "1.0.0"
@@ -96,13 +96,13 @@ __all__ = [
     'ColumnType',
     'ReinforcementPattern',
     
-    # Load Combinations - temporarily commented
-    # 'ACI318M25LoadCombinations',
-    # 'LoadType',
-    # 'LoadDuration',
-    # 'CombinationType',
-    # 'Load',
-    # 'LoadCombination',
+    # Load Combinations
+    'ACI318M25LoadCombinations',
+    'CombinationLoadType',
+    'LoadDuration',
+    'CombinationType',
+    'Load',
+    'LoadCombination',
     
     # Package metadata
     '__version__',

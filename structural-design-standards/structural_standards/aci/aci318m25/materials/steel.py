@@ -187,23 +187,31 @@ class ACI318M25Steel(SteelMaterial):
         float
             Development length (mm)
         """
-        # ACI 318M-25 Eq. 25.4.2.3a for deformed bars in tension
-        # ld = (fy * ψt * ψe * ψs * λ * db) / (25 * √f'c * (cb + Ktr)/db)
+        # ACI 318M-25 Eq. 25.4.2.4 (SI units):
+        #   ld = (1/1.1) * fy/(λ·√f'c) * ψt·ψe·ψg * db / ((cb + Ktr)/db)
+        # λ is a divisor: lightweight concrete lengthens ld (Table 25.4.2.5).
+        # The former bar-size factor ψs was replaced by the reinforcement
+        # grade factor ψg; ψs is conservatively not applied here.
         
         factors = self.get_development_length_factors()
         
         # Modification factors
         psi_t = factors['bar_location_top'] if bar_location == 'top' else factors['bar_location_other']
         psi_e = 1.5 if bar_coating == 'epoxy' else 1.0
-        psi_s = 0.8 if bar_diameter <= 19.0 else 1.0  # For 19M and smaller bars
-        lambda_factor = 1.0  # For normal weight concrete
+        if self.fy <= 420.0:
+            psi_g = 1.0      # Grade 280 / Grade 420
+        elif self.fy <= 550.0:
+            psi_g = 1.15     # Grade 550
+        else:
+            psi_g = 1.30     # Grade 690
+        lambda_factor = 1.0  # Normalweight concrete; use 0.75 for lightweight
         
         # Simplified calculation (conservative - assumes minimum cover)
         # For detailed calculation, cover and spacing should be considered
-        cb_ktr_db = 2.5  # Conservative assumption
+        cb_ktr_db = 2.5  # Upper bound permitted by 25.4.2.4
         
-        ld = (self.fy * psi_t * psi_e * psi_s * lambda_factor * bar_diameter) / \
-             (25 * math.sqrt(concrete_strength) * cb_ktr_db)
+        ld = (self.fy * psi_t * psi_e * psi_g * bar_diameter) / \
+             (1.1 * lambda_factor * math.sqrt(concrete_strength) * cb_ktr_db)
         
         # Minimum development length
         ld_min = max(300.0, 8 * bar_diameter)  # ACI 318M-25 Section 25.4.2.1

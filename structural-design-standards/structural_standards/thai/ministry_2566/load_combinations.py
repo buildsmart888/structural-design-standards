@@ -16,7 +16,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 
-from ....utils.validation import StructuralValidator
+from ...utils.validation import StructuralValidator
 
 
 class ThaiLoadType(Enum):

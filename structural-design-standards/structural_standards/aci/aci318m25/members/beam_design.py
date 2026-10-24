@@ -196,8 +196,9 @@ class ACI318M25BeamDesign(BeamDesign):
             # Strain in extreme tension steel
             epsilon_t = self.epsilon_cu * (d - c) / c
             
-            # Check section behavior
-            if epsilon_t >= 0.005:
+            # Check section behavior (Table 21.2.2: epsilon_ty + 0.003)
+            epsilon_t_limit = self.epsilon_ty + 0.003
+            if epsilon_t >= epsilon_t_limit:
                 # Tension-controlled
                 phi_actual = self.phi_flexure
                 section_type = "tension-controlled"
@@ -208,7 +209,7 @@ class ACI318M25BeamDesign(BeamDesign):
             else:
                 # Transition zone
                 phi_actual = self.phi_compression + (self.phi_flexure - self.phi_compression) * \
-                           (epsilon_t - self.epsilon_ty) / (0.005 - self.epsilon_ty)
+                           (epsilon_t - self.epsilon_ty) / 0.003
                 section_type = "transition"
             
             # Check reinforcement ratio limits
@@ -324,8 +325,8 @@ class ACI318M25BeamDesign(BeamDesign):
         lambda_factor = 1.0  # Normal weight concrete
         sqrt_fc = math.sqrt(self.fc)  # MPa^0.5
         
-        # Vc = (1/6)⋅λ⋅√fc⋅b⋅d (in N)
-        Vc = (1/6) * lambda_factor * sqrt_fc * b * d * 1e6**0.5  # Convert MPa to N/mm²
+        # Vc = 0.17⋅λ⋅√fc'⋅bw⋅d  (Table 22.5.5.1(a), SI: MPa·mm·mm = N)
+        Vc = 0.17 * lambda_factor * sqrt_fc * b * d  # N
         
         # Design shear strength
         phi_Vc = self.phi_shear * Vc
@@ -358,7 +359,7 @@ class ACI318M25BeamDesign(BeamDesign):
             s_required = Av_stirrup / Av_over_s_required  # mm
             
             # Maximum spacing limits (ACI 318M-25 Section 9.6.3)
-            if Vs_required <= (1/3) * sqrt_fc * b * d * 1e6**0.5:
+            if Vs_required <= 0.33 * sqrt_fc * b * d:  # 25.7.2.1.2
                 s_max = min(d/2, 600)  # mm
             else:
                 s_max = min(d/4, 300)  # mm
@@ -368,7 +369,7 @@ class ACI318M25BeamDesign(BeamDesign):
             shear_reinforcement_required = True
         
         # Check maximum shear limit (ACI 318M-25 Section 22.5)
-        Vs_max = (2/3) * sqrt_fc * b * d * 1e6**0.5  # N
+        Vs_max = 0.66 * sqrt_fc * b * d  # N, 22.5.1.2: Vn ≤ Vc + 0.66√fc' bw d
         phi_Vs_max = self.phi_shear * Vs_max
         
         # Total shear capacity
@@ -452,7 +453,7 @@ class ACI318M25BeamDesign(BeamDesign):
         # Calculate cracking moment
         fr = self.concrete.modulus_of_rupture()  # MPa
         yt = h / 2  # mm (distance to extreme tension fiber)
-        Mcr = fr * Ig / yt / 1e6  # Convert to N⋅mm
+        Mcr = fr * Ig / yt  # N⋅mm  (MPa·mm⁴/mm = N·mm)
         
         # Service moments
         if beam_type == BeamType.SIMPLY_SUPPORTED:
@@ -489,20 +490,20 @@ class ACI318M25BeamDesign(BeamDesign):
         # Calculate deflections
         if beam_type == BeamType.SIMPLY_SUPPORTED:
             # Immediate deflection
-            delta_immediate = 5 * w_total_per_mm * L**4 / (384 * self.Ec * Ie * 1000)  # mm
+            delta_immediate = 5 * w_total_per_mm * L**4 / (384 * self.Ec * Ie)  # mm
             
             # Long-term deflection
             # Sustained load deflection
-            delta_sustained = 5 * w_dead_per_mm * L**4 / (384 * self.Ec * Ie * 1000)  # mm
+            delta_sustained = 5 * w_dead_per_mm * L**4 / (384 * self.Ec * Ie)  # mm
             
         elif beam_type == BeamType.CONTINUOUS:
             # Approximate for continuous beams
-            delta_immediate = w_total_per_mm * L**4 / (384 * self.Ec * Ie * 1000)  # mm
-            delta_sustained = w_dead_per_mm * L**4 / (384 * self.Ec * Ie * 1000)  # mm
+            delta_immediate = w_total_per_mm * L**4 / (384 * self.Ec * Ie)  # mm
+            delta_sustained = w_dead_per_mm * L**4 / (384 * self.Ec * Ie)  # mm
             
         else:  # Cantilever
-            delta_immediate = w_total_per_mm * L**4 / (8 * self.Ec * Ie * 1000)  # mm
-            delta_sustained = w_dead_per_mm * L**4 / (8 * self.Ec * Ie * 1000)  # mm
+            delta_immediate = w_total_per_mm * L**4 / (8 * self.Ec * Ie)  # mm
+            delta_sustained = w_dead_per_mm * L**4 / (8 * self.Ec * Ie)  # mm
         
         # Time-dependent factor for sustained loads (ACI 318M-25 Section 24.2.4)
         xi = 2.0  # For 5 years or more

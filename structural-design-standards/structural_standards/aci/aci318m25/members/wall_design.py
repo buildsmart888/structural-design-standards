@@ -222,8 +222,8 @@ class ACI318M25WallDesign(MemberDesign):
     def _design_bearing_wall(self, geometry, loads, boundary_condition, result):
         """Design bearing wall for axial load and out-of-plane moment"""
         
-        Pu = loads.total_axial * geometry.length * 1000  # N
-        q = loads.total_lateral_pressure * 1000  # N/m²
+        Pu = loads.total_axial * geometry.length  # N  ((kN/m)·(mm) ≡ N)
+        q = loads.total_lateral_pressure * 1e-6  # kPa -> N/mm²
         
         # Calculate moment based on boundary conditions
         if boundary_condition == WallBoundaryCondition.PINNED_TOP_BOTTOM:
@@ -256,7 +256,7 @@ class ACI318M25WallDesign(MemberDesign):
     def _design_shear_wall(self, geometry, loads, boundary_condition, result):
         """Design shear wall for in-plane forces"""
         
-        Pu = loads.total_axial * geometry.length * 1000  # N
+        Pu = loads.total_axial * geometry.length  # N  ((kN/m)·(mm) ≡ N)
         Vu = loads.shear_force * 1000  # N
         Mu = loads.overturning_moment * 1e6  # N⋅mm
         
@@ -286,7 +286,7 @@ class ACI318M25WallDesign(MemberDesign):
     def _design_non_bearing_wall(self, geometry, loads, boundary_condition, result):
         """Design non-bearing wall for out-of-plane loads only"""
         
-        q = loads.total_lateral_pressure * 1000  # N/m²
+        q = loads.total_lateral_pressure * 1e-6  # kPa -> N/mm²
         
         # Calculate moment based on boundary conditions
         if boundary_condition == WallBoundaryCondition.PINNED_TOP_BOTTOM:
@@ -338,7 +338,7 @@ class ACI318M25WallDesign(MemberDesign):
     def _check_axial_strength(self, geometry, loads):
         """Check axial strength capacity"""
         
-        Pu = loads.total_axial * geometry.length * 1000  # N
+        Pu = loads.total_axial * geometry.length  # N  ((kN/m)·(mm) ≡ N)
         Ag = geometry.gross_area
         
         # Assume 1% reinforcement for preliminary check
@@ -366,7 +366,7 @@ class ACI318M25WallDesign(MemberDesign):
     def _check_flexural_strength(self, geometry, loads, boundary_condition):
         """Check flexural strength capacity"""
         
-        q = loads.total_lateral_pressure * 1000  # N/m²
+        q = loads.total_lateral_pressure * 1e-6  # kPa -> N/mm²
         
         # Calculate moment based on boundary conditions
         if boundary_condition == WallBoundaryCondition.PINNED_TOP_BOTTOM:
@@ -457,7 +457,7 @@ class ACI318M25WallDesign(MemberDesign):
     def _check_deflection_limits(self, geometry, loads, boundary_condition):
         """Check deflection limits under service loads"""
         
-        q = loads.total_lateral_pressure * 1000  # N/m²
+        q = loads.total_lateral_pressure * 1e-6  # kPa -> N/mm²
         L = geometry.height
         E = self.Ec
         I = geometry.length * geometry.thickness**3 / 12

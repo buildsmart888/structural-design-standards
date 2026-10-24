@@ -218,9 +218,16 @@ class ACI318M25SlabDesign(SlabDesign):
         return self._select_reinforcement(As_required, width)
     
     def _design_minimum_reinforcement(self, width: float, depth: float) -> Dict[str, float]:
-        """Design minimum reinforcement for temperature/shrinkage"""
+        """Design minimum reinforcement for temperature/shrinkage.
+
+        ACI 318M-25 7.6.1.1 requires As,min = 0.0018·Ag, with 0.0020 permitted
+        for fy <= 420 MPa and (0.0018)(420/fy) for fy > 520 MPa.
+        `depth` must be the total slab thickness (gross area), not d.
+        """
         if self.steel.fy <= 420:
             rho_min = 0.0020
+        elif self.steel.fy <= 520:
+            rho_min = 0.0018
         else:
             rho_min = 0.0018 * 420 / self.steel.fy
             
@@ -308,6 +315,8 @@ class ACI318M25SlabDesign(SlabDesign):
         
         ratio = ratios.get(support_conditions, 20)
         min_thickness = span_length / ratio
+        # 7.3.1.1.1: for fy other than 420 MPa multiply by (0.4 + fy/700)
+        min_thickness *= (0.4 + self.steel.fy / 700.0)
         
         return self.create_design_check(
             name="Minimum Thickness",

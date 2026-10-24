@@ -244,7 +244,7 @@ class ThaiSteel(SteelMaterial):
         float
             Yield strength (ksc)
         """
-        return self.fy * 1000 / 9.807  # Convert MPa to ksc
+        return self.fy * 1000 / 98.0665  # MPa -> ksc; 1 ksc = 1 kgf/cm2 = 0.0980665 MPa
     
     def ultimate_strength_ksc(self) -> float:
         """
@@ -255,7 +255,7 @@ class ThaiSteel(SteelMaterial):
         float
             Ultimate strength (ksc)
         """
-        return self.fu * 1000 / 9.807  # Convert MPa to ksc
+        return self.fu * 1000 / 98.0665  # MPa -> ksc; 1 ksc = 1 kgf/cm2 = 0.0980665 MPa
     
     def get_design_properties(self) -> Dict[str, float]:
         """
@@ -506,7 +506,7 @@ class ThaiReinforcementSteel(ReinforcementSteel):
             'bar_mass_kg_m': self.bar_mass(),
             'surface_type': self.rebar_properties.surface_type,
             'steel_grade': self.steel_grade,
-            'yield_strength_ksc': self.fy * 1000 / 9.807,
+            'yield_strength_ksc': self.fy * 1000 / 98.0665,
             'description_thai': self.rebar_properties.description_thai,
             'description_english': self.rebar_properties.description_english
         }
@@ -571,9 +571,9 @@ def create_rb6_sr24() -> ThaiReinforcementSteel:
 
 # Unit conversion utilities for Thai steel
 def mpa_to_ksc_steel(mpa: float) -> float:
-    """Convert steel strength from MPa to ksc"""
-    return mpa * 1000 / 9.807
+    """Convert steel strength from MPa to ksc; 1 ksc = 1 kgf/cm2 = 0.0980665 MPa"""
+    return mpa * 1000 / 98.0665
 
 def ksc_to_mpa_steel(ksc: float) -> float:
-    """Convert steel strength from ksc to MPa"""
-    return ksc * 9.807 / 1000
+    """Convert steel strength from ksc to MPa; 1 ksc = 1 kgf/cm2 = 0.0980665 MPa"""
+    return ksc * 98.0665 / 1000
