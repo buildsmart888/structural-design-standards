@@ -388,3 +388,50 @@ def test_aci_dev_expression_with_explicit_confinement():
     assert x["confinement_ratio_capped"] == pytest.approx(1.25)
     assert x["general_expression_length_mm"] == pytest.approx(
         420*20/(1.1*math.sqrt(28)*1.25))
+
+
+def test_thai_signed_loads_allow_negative_internal_moment_but_reject_nan():
+    combos=ThaiMinistryLoadCombinations()
+    c=next(c for c in combos.get_ultimate_combinations()
+           if c.name=="ULS-7.1")
+    # Member effects (moments/reactions) may have physical signs.
+    assert c.calculate_load_effect({
+        ThaiLoadType.DEAD:-2,ThaiLoadType.LIVE:4}) == pytest.approx(4.0)
+    with pytest.raises(ValueError):
+        c.calculate_load_effect({
+            ThaiLoadType.DEAD:float("nan"),ThaiLoadType.LIVE:4})
+
+
+def test_thai_missing_dead_load_cannot_be_silent_zero():
+    c=next(c for c in ThaiMinistryLoadCombinations().get_ultimate_combinations()
+           if c.name=="ULS-7.1")
+    with pytest.raises(ValueError):
+        c.calculate_load_effect({ThaiLoadType.LIVE:4})
+
+
+def test_material_input_cannot_disagree_with_grade():
+    from structural_standards.thai.ministry_2566.materials.concrete import ThaiConcrete
+    from structural_standards.thai.ministry_2566.materials.steel import ThaiSteel
+    with pytest.raises(ValueError,match="Conflicting"):
+        ThaiConcrete(grade="Fc210",fc_prime=21.0)
+    with pytest.raises(ValueError,match="Conflicting"):
+        ThaiSteel(grade="SD40",fy=400.0)
+
+
+def test_case_insensitive_grade_has_canonical_properties():
+    from structural_standards.thai.ministry_2566.materials.concrete import ThaiConcrete
+    from structural_standards.thai.ministry_2566.materials.steel import ThaiSteel
+    c=ThaiConcrete(grade="fc210")
+    st=ThaiSteel(grade="sd40")
+    assert c.grade == "Fc210" and c.grade_properties is not None
+    assert st.grade == "SD40" and st.grade_properties is not None
+
+
+def test_thai_unverified_cover_tolerance_and_summary_are_blocked():
+    from structural_standards.thai.ministry_2566.design_requirements import (
+        ThaiMinistryDesignRequirements)
+    req=ThaiMinistryDesignRequirements()
+    for func in (req.get_concrete_cover,req.get_deflection_limit,
+                 req.get_construction_tolerance,req.generate_design_summary):
+        with pytest.raises(NotImplementedError):
+            func()
