@@ -145,6 +145,7 @@ class ThaiConcrete(ConcreteMaterial):
             
             props = self.THAI_CONCRETE_GRADES[grade_enum]
             fc_prime = props.fc_mpa
+            grade = props.grade  # canonical grade for properties and reports
             
         elif fc_prime is not None:
             validate_positive(fc_prime, "fc_prime")
