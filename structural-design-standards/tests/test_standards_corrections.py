@@ -258,14 +258,14 @@ def test_ksc_conversion_uses_the_correct_definition():
 def test_thai_concrete_grade_factories_work():
     """create_fc180()..create_fc350() all raised ValueError from the broken parser."""
     c = create_fc210()
-    assert c.fc_prime == pytest.approx(21.0)
-    assert c.strength_in_ksc() == pytest.approx(21.0 / KSC_IN_MPA, rel=1e-6)
+    assert c.fc_prime == pytest.approx(210.0 * KSC_IN_MPA)
+    assert c.strength_in_ksc() == pytest.approx(210.0, rel=1e-9)
 
 
 @pytest.mark.parametrize('grade', ['Fc180', 'FC180', 'fc180', 'fc 180'.replace(' ', '')])
 def test_thai_grade_parsing_is_case_insensitive(grade):
     """The grade parser must accept any casing and resolve to the Fc180 properties."""
-    assert ThaiConcrete(grade=grade).fc_prime == pytest.approx(18.0)
+    assert ThaiConcrete(grade=grade).fc_prime == pytest.approx(180.0 * KSC_IN_MPA)
 
 
 def test_provincial_wind_zone_delegates_to_wind_module():
