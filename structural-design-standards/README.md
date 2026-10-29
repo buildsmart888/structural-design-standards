@@ -1,3 +1,12 @@
+> **ENGINEERING SAFETY NOTICE (2026-10-29): UNVERIFIED / DO NOT USE FOR DESIGN APPROVAL.**
+> The ACI/Thai calculation library has unresolved code-compliance and integration
+> gaps. Numerical fixes are in progress on the audit branch. Only limited,
+> explicitly documented statics or sectional calculations are available;
+> a "PASS" for one check does not certify a member or building. See
+> [ENGINEERING_VALIDATION_STATUS.md](../ENGINEERING_VALIDATION_STATUS.md).
+> Current 2026 code applicability and site-specific inputs require independent
+> licensed-engineer review.
+
 # Structural Design Standards Library
 
 > [!CAUTION]
@@ -21,7 +30,6 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/your-org/structural-design-standards)
 [![Documentation](https://img.shields.io/badge/docs-latest-brightgreen.svg)](https://structural-design-standards.readthedocs.io/)
 
 ## 📋 **Overview / ภาพรวม**
@@ -33,33 +41,33 @@ A comprehensive Python library implementing international structural design stan
 ## 🎯 **Key Features / ฟีเจอร์หลัก**
 
 ### 🇺🇸 **ACI 318M-25 (International SI Units)**
-- ✅ Complete concrete and steel material models
-- ✅ Comprehensive member design (beams, columns, slabs, walls, footings)
-- ✅ Load combinations and strength reduction factors
-- ✅ Serviceability checks and deflection limits
-- ✅ Detailing requirements and reinforcement design
+- ⚠️ Not independently validated concrete and steel material models
+- ⚠️ Experimental member design (beams, columns, slabs, walls, footings)
+- ⚠️ Load combinations and strength reduction factors
+- ⚠️ Serviceability checks and deflection limits
+- ⚠️ Detailing requirements and reinforcement design
 
 ### 🇹🇭 **Thai Standards (กฎกระทรวง พ.ศ. 2566)**
-- ✅ Thai concrete grades (Fc180-Fc350) and steel grades (SD40, SD50, SR24)
-- ✅ Wind load calculations per TIS 1311-50
-- ✅ Seismic loads per TIS 1301/1302-61
-- ✅ Thai unit conversions (ksc ↔ MPa, kgf ↔ N)
-- ✅ Provincial wind and seismic zones
-- ✅ Bilingual documentation (Thai/English)
+- ⚠️ Thai concrete grades (Fc180-Fc350) and steel grades (SD40, SD50, SR24)
+- ⚠️ Wind load calculations per TIS 1311-50
+- ⚠️ Seismic loads per TIS 1301/1302-61
+- ⚠️ Thai unit conversions (ksc ↔ MPa, kgf ↔ N)
+- ⚠️ Provincial wind and seismic zones
+- ⚠️ Bilingual documentation (Thai/English)
 
 ### 🔧 **Core Features**
-- ✅ Modular plugin-based architecture
-- ✅ Cross-standard material property comparisons
-- ✅ Comprehensive input validation
-- ✅ Unit conversion utilities
-- ✅ Professional-grade testing suite
-- ✅ Type hints and modern Python practices
+- ⚠️ Modular plugin-based architecture
+- ⚠️ Cross-standard material property comparisons
+- ⚠️ Experimental input validation
+- ⚠️ Unit conversion utilities
+- ⚠️ Experimental testing suite
+- ⚠️ Type hints and modern Python practices
 
 ## 🚀 **Quick Start / เริ่มต้นใช้งาน**
 
 ### Installation / การติดตั้ง
 ```bash
-pip install structural-design-standards
+python -m pip install -e .  # from nested structural-design-standards/ folder
 ```
 
 ### Basic Usage / การใช้งานพื้นฐาน
@@ -105,17 +113,17 @@ print(f"Wind pressure: {wind_pressure['design_pressure']:.2f} kN/m²")
 
 - 📚 [**API Reference**](https://structural-design-standards.readthedocs.io/api/) - Complete API documentation
 - 🎓 [**Tutorials**](https://structural-design-standards.readthedocs.io/tutorials/) - Step-by-step guides
-- 📝 [**Examples**](https://github.com/your-org/structural-design-standards/tree/main/examples) - Real-world usage examples
+- 📝 [**Examples**](https://github.com/buildsmart888/structural-design-standards/tree/main/examples) - Real-world usage examples
 - 🔬 [**Theory Manual**](https://structural-design-standards.readthedocs.io/theory/) - Theoretical background
 
 ## 🏗️ **Supported Standards / มาตรฐานที่รองรับ**
 
 | Standard | Version | Status | Coverage |
 |----------|---------|--------|----------|
-| ACI 318M | ACI 318M-25 | ✅ Complete | Concrete structures |
-| Thai Ministry Reg. | B.E. 2566 (2023) | ✅ Complete | All structural types |
-| Thai Wind Loads | TIS 1311-50 | ✅ Complete | Wind analysis |
-| Thai Seismic | TIS 1301/1302-61 | ✅ Complete | Earthquake analysis |
+| ACI 318M | ACI 318M-25 | ⚠️ Not independently validated | Concrete structures |
+| Thai Ministry Reg. | B.E. 2566 (2023) | ⚠️ Not independently validated | All structural types |
+| Thai Wind Loads | TIS 1311-50 | ⚠️ Not independently validated | Wind analysis |
+| Thai Seismic | TIS 1301/1302-61 | ⚠️ Not independently validated | Earthquake analysis |
 | Eurocode 2 | EN 1992 | 🚧 Planned | Concrete structures |
 | Japanese AIJ | Latest | 🚧 Planned | All structural types |
 
@@ -129,7 +137,7 @@ print(f"Wind pressure: {wind_pressure['design_pressure']:.2f} kN/m²")
 
 ### Development Installation / การติดตั้งสำหรับพัฒนา
 ```bash
-git clone https://github.com/your-org/structural-design-standards.git
+git clone https://github.com/buildsmart888/structural-design-standards.git
 cd structural-design-standards
 pip install -e ".[dev]"
 ```
@@ -150,15 +158,15 @@ make html
 
 ```
 🇺🇸 United States
-├── ACI 318M-25 (SI Units) ✅
+├── ACI 318M-25 (SI Units) ⚠️
 ├── AISC 360 (Steel) 🚧
 └── ASCE 7 (Loads) 🚧
 
 🇹🇭 Thailand
-├── Ministry Regulation 2566 ✅
-├── TIS 1311-50 (Wind) ✅
-├── TIS 1301/1302-61 (Seismic) ✅
-└── มยผ. 1103/1104 (Materials) ✅
+├── Ministry Regulation 2566 ⚠️
+├── TIS 1311-50 (Wind) ⚠️
+├── TIS 1301/1302-61 (Seismic) ⚠️
+└── มยผ. 1103/1104 (Materials) ⚠️
 
 🇪🇺 Europe
 ├── Eurocode 2 (Concrete) 🚧
@@ -200,9 +208,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 **Support / การสนับสนุน**
 
-- 📧 Email: support@structural-standards.org
-- 💬 Discussions: [GitHub Discussions](https://github.com/your-org/structural-design-standards/discussions)
-- 🐛 Issues: [GitHub Issues](https://github.com/your-org/structural-design-standards/issues)
+- Contact: GitHub Issues (no verified project support email)
+- 💬 Discussions: [GitHub Discussions](https://github.com/buildsmart888/structural-design-standards/discussions)
+- 🐛 Issues: [GitHub Issues](https://github.com/buildsmart888/structural-design-standards/issues)
 - 📖 Documentation: [Read the Docs](https://structural-design-standards.readthedocs.io/)
 
 ---
