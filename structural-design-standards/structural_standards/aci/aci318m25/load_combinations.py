@@ -68,7 +68,8 @@ class LoadCombination:
     combination_type: CombinationType
     factors: Dict[LoadType, float] = field(default_factory=dict)
     description: str = ""
-    
+    alternative_groups: List[Tuple[LoadType, ...]] = field(default_factory=list)
+
     def calculate_load_effect(self, loads: Dict[LoadType, float]) -> float:
         """
         Calculate total load effect for this combination
@@ -83,12 +84,21 @@ class LoadCombination:
         float
             Combined load effect
         """
-        total = 0.0
-        for load_type, factor in self.factors.items():
-            if load_type in loads:
-                total += factor * loads[load_type]
+        if any(not math.isfinite(float(v)) for v in loads.values()):
+            raise ValueError("Load effects must be finite")
+        grouped = {t for grp in self.alternative_groups for t in grp}
+        if any(sum(t in grp for grp in self.alternative_groups) > 1 for t in grouped):
+            raise ValueError("A load type appears in multiple alternative groups")
+        total = sum(f * loads.get(t, 0.0) for t, f in self.factors.items()
+                    if t not in grouped)
+        for group in self.alternative_groups:
+            # (Lr OR S OR R), NOT the sum. Choose the governing signed
+            # response for the current check. Case generation for both
+            # signs of lateral actions is handled separately.
+            total += max([self.factors[t] * loads[t] for t in group if t in loads]
+                         or [0.0])
         return total
-    
+
     def get_equation(self) -> str:
         """Get load combination equation as string"""
         terms = []
@@ -161,7 +171,8 @@ class ACI318M25LoadCombinations:
                     LoadType.SNOW: 0.3,
                     LoadType.RAIN: 0.5
                 },
-                description="Dead + Live + (0.5Roof Live or 0.3Snow or 0.5Rain) - Eq. (5.3.1b)"
+                description="Dead + Live + (0.5Roof Live or 0.3Snow or 0.5Rain) - Eq. (5.3.1b)",
+                alternative_groups=[(LoadType.ROOF_LIVE, LoadType.SNOW, LoadType.RAIN)]
             ),
             
             LoadCombination(
@@ -175,7 +186,9 @@ class ACI318M25LoadCombinations:
                     LoadType.LIVE: 1.0,
                     LoadType.WIND: 0.5
                 },
-                description="Dead + (1.6Roof Live or 1.0Snow or 1.6Rain) + (Live or 0.5Wind) - Eq. (5.3.1c)"
+                description="Dead + (1.6Roof Live or 1.0Snow or 1.6Rain) + (Live or 0.5Wind) - Eq. (5.3.1c)",
+                alternative_groups=[(LoadType.ROOF_LIVE, LoadType.SNOW, LoadType.RAIN),
+                                    (LoadType.LIVE, LoadType.WIND)]
             ),
             
             LoadCombination(
@@ -189,7 +202,8 @@ class ACI318M25LoadCombinations:
                     LoadType.SNOW: 0.3,
                     LoadType.RAIN: 0.5
                 },
-                description="Dead + Wind + Live + (0.5Roof Live or 0.3Snow or 0.5Rain) - Eq. (5.3.1d)"
+                description="Dead + Wind + Live + (0.5Roof Live or 0.3Snow or 0.5Rain) - Eq. (5.3.1d)",
+                alternative_groups=[(LoadType.ROOF_LIVE, LoadType.SNOW, LoadType.RAIN)]
             ),
             
             LoadCombination(
@@ -382,6 +396,33 @@ class ACI318M25LoadCombinations:
         
         return results
     
+    def calculate_signed_strength_envelope(
+            self, loads: Dict[LoadType, float]) -> Dict[str, float]:
+        """Enumerate the two possible signs of W and E load EFFECTS.
+
+        This does NOT invent wind directions or seismic orthogonal effects:
+        callers must run structural analysis for every required direction
+        and pass the signed member response as W and E. Returns positive
+        and negative governing effects separately, not just the maximum.
+        """
+        import itertools
+        outcomes = {}
+        keys = [x for x in (LoadType.WIND, LoadType.EARTHQUAKE) if x in loads]
+        for signs in itertools.product((1, -1), repeat=len(keys)):
+            current = loads.copy()
+            suffix = ""
+            for key, sign in zip(keys, signs):
+                current[key] = sign * loads[key]
+                suffix += f"_{key.value}{'plus' if sign > 0 else 'minus'}"
+            for combination in self._strength_combinations:
+                name = combination.name + suffix
+                outcomes[name] = combination.calculate_load_effect(current)
+        return {
+            "maximum": max(outcomes.values()),
+            "minimum": min(outcomes.values()),
+            "governing_absolute": max(outcomes.values(), key=lambda x: abs(x)),
+        }
+
     def get_strength_reduction_factor(self, failure_mode: str) -> float:
         """
         Get strength reduction factor (φ) for specified failure mode
