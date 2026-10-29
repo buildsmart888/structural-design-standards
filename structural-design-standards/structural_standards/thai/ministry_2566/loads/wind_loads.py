@@ -205,115 +205,93 @@ class ThaiWindLoads:
             'สุราษฎร์ธานี': ThaiWindZone.ZONE_3, 'นครศรีธรรมราช': ThaiWindZone.ZONE_3
         }
     
-    def get_wind_zone_for_province(self, province: str) -> Tuple[ThaiWindZone, float, str]:
-        """Get wind zone information for a Thai province"""
-        if province in self.province_wind_zones:
-            zone = self.province_wind_zones[province]
-            wind_speed = self.basic_wind_speeds[zone]
-            description = f"Zone {zone.value} - {province}"
-            return zone, wind_speed, description
+def get_wind_zone_for_province(self, province: str) -> Tuple[ThaiWindZone, float, str]:
+        """Unverified province -> m/s mapping must not be used for design."""
+        raise NotImplementedError(
+            "Province-to-wind-speed lookup is NOT VERIFIED against the current "
+            "official DPT wind map. Never default an unknown province to 25 m/s. "
+            "For qualifying buildings, use calculate_statutory_minimum_pressure "
+            "with explicit terrain and geometry; it is a statutory minimum only."
+        )
+
+    @staticmethod
+    def calculate_statutory_minimum_pressure(
+            building_height_m: float, least_width_m: float,
+            terrain: str, is_public_building: bool = False,
+            total_floor_area_m2: float = 0.0,
+            rectangular_plan: bool = True) -> Dict[str, float]:
+        """Ministerial Regulation 2566 clause 17: LIMITED wind-pressure option.
+
+        Applies only to rectangular/similar MAIN structural systems at H <= 40m
+        and H <= 3 * least width. Does NOT cover facade components, cladding,
+        internal pressure, shape coefficients, uplift, topography, or a complete
+        multi-direction wind load analysis. Returns the statutory minimum only.
+        """
+        for name, val in (("height", building_height_m),
+                          ("least width", least_width_m)):
+            if not math.isfinite(val) or val <= 0:
+                raise ValueError(f"{name} must be finite and positive")
+        if (not rectangular_plan or building_height_m > 40
+                or building_height_m > 3 * least_width_m):
+            raise ValueError("Clause 17 simplified option is NOT applicable")
+        if terrain not in ("urban", "open"):
+            raise ValueError("terrain must explicitly be urban or open/coastal")
+        if not math.isfinite(total_floor_area_m2) or total_floor_area_m2 < 0:
+            raise ValueError("total_floor_area_m2 must be >= 0")
+        if building_height_m <= 10:
+            i = 0
+        elif building_height_m <= 20:
+            i = 1
         else:
-            # Default to Zone 2 if province not found
-            zone = ThaiWindZone.ZONE_2
-            wind_speed = self.basic_wind_speeds[zone]
-            description = f"Zone {zone.value} - Default"
-            return zone, wind_speed, description
-    
-    def calculate_terrain_factor(self, height: float, terrain: ThaiTerrainCategory) -> float:
-        """Calculate terrain exposure factor according to TIS 1311-50"""
-        params = self.terrain_parameters[terrain]
-        h = max(height, params['zmin'])
-        
-        if terrain == ThaiTerrainCategory.CATEGORY_I:
-            kr = (h / 10.0) ** params['alpha']
-        else:
-            z0 = params['z0']
-            kr = 0.85 * (h / 10.0) ** (0.22 + 0.07 * math.log(z0))
-        
-        return min(kr, 2.0)
-    
-    def calculate_design_wind_pressure(self, basic_wind_speed: float, height: float,
-                                     terrain: ThaiTerrainCategory, 
+            i = 2
+        table = {"urban": (0.6, 0.8, 1.2),
+                 "open": (1.0, 1.2, 1.6)}  # kN/m2, clause 17
+        factor = 1.15 if is_public_building and total_floor_area_m2 >= 1000 else 1.0
+        value = table[terrain][i] * factor
+        return {
+            "minimum_pressure_kN_m2": value,
+            "minimum_pressure_kPa": value,
+            "public_building_factor": factor,
+            "maximum_applicable_height_m": 40.0,
+            "applicability_checked": True,
+            "reference": "Thai Ministerial Regulation B.E.2566 clause 17, Tables 1-2",
+        }
+
+def calculate_terrain_factor(self, height: float,
+                                 terrain: ThaiTerrainCategory) -> float:
+        """Site exposure model is NOT verified against DPT wind standard."""
+        raise NotImplementedError(
+            "Unverified terrain multipliers: official DPT exposure category "
+            "and site-specific gust factors are required."
+        )
+
+def calculate_design_wind_pressure(self, basic_wind_speed: float,
+                                     height: float, terrain: ThaiTerrainCategory,
                                      building_importance: ThaiBuildingImportance,
                                      topography: ThaiTopographyType = ThaiTopographyType.FLAT) -> float:
-        """Calculate design wind pressure according to TIS 1311-50"""
-        kr = self.calculate_terrain_factor(height, terrain)
-        kt = self.topographic_factors[topography]
-        ki = self.importance_factors[building_importance]['factor']
-        
-        design_wind_speed = basic_wind_speed * kr * kt * ki
-        air_density = 1.225  # kg/m³
-        design_pressure = 0.5 * air_density * (design_wind_speed ** 2)
-        
-        return design_pressure
-    
-    def analyze_building_wind_loads(self, province: str, building_geometry: ThaiBuildingGeometry,
-                                  building_importance: ThaiBuildingImportance,
-                                  topography: ThaiTopographyType = ThaiTopographyType.FLAT) -> ThaiWindLoadResult:
-        """Complete wind load analysis for a building according to Thai standards"""
-        zone, basic_wind_speed, zone_desc = self.get_wind_zone_for_province(province)
-        
-        design_pressure = self.calculate_design_wind_pressure(
-            basic_wind_speed, building_geometry.height, 
-            building_geometry.exposure_category, building_importance, topography
+        """Do not use a guessed wind speed/exposure factor as a design pressure."""
+        raise NotImplementedError(
+            "Design wind pressure NOT VERIFIED: use the official wind standard "
+            "and all applicable external/internal pressures, direction, exposure "
+            "and topography factors. A static q=0.5*rho*V^2 is not a building load."
         )
-        
-        kr = self.calculate_terrain_factor(building_geometry.height, building_geometry.exposure_category)
-        kt = self.topographic_factors[topography]
-        ki = self.importance_factors[building_importance]['factor']
-        design_wind_speed = basic_wind_speed * kr * kt * ki
-        
-        building_shape = 'low_rise_building' if building_geometry.height <= 18 else 'rectangular_building'
-        pressure_coeffs = self.pressure_coefficients[building_shape].copy()
-        
-        windward_area = building_geometry.height * building_geometry.width
-        cp_windward = pressure_coeffs.get('windward_wall', 0.8)
-        total_force = design_pressure * cp_windward * windward_area
-        
-        importance_info = self.importance_factors[building_importance]
-        description_thai = f"การวิเคราะห์แรงลมสำหรับ{importance_info['description_thai']}ในจังหวัด{province}"
-        description_english = f"Wind analysis for {importance_info['description_english']} in {province}"
-        
-        return ThaiWindLoadResult(
-            design_wind_pressure=design_pressure,
-            design_wind_speed=design_wind_speed,
-            basic_wind_speed=basic_wind_speed,
-            terrain_factor=kr,
-            topographic_factor=kt,
-            importance_factor=ki,
-            pressure_coefficients=pressure_coeffs,
-            total_wind_force=total_force,
-            wind_zone=zone.value,
-            province=province,
-            description_thai=description_thai,
-            description_english=description_english,
-            calculation_method="TIS 1311-50 + Ministry Regulation B.E. 2566",
-            reference="มยผ. 1311-50 และ กฎกระทรวง พ.ศ. 2566"
+
+def analyze_building_wind_loads(self, province: str,
+                                    building_geometry: ThaiBuildingGeometry,
+                                    building_importance: ThaiBuildingImportance,
+                                    topography: ThaiTopographyType = ThaiTopographyType.FLAT) -> ThaiWindLoadResult:
+        """Full wind analysis unavailable: do not report the old Cp=0.8-only result."""
+        raise NotImplementedError(
+            "Thai full building wind loads NOT VERIFIED: unverified wind speeds, "
+            "windward-only Cp=0.8, missing leeward/internal pressures and uplift. "
+            "No force may be automatically certified from a province name."
         )
-    
+
+
     def get_wind_load_summary(self, province: str, building_height: float,
                             building_importance: ThaiBuildingImportance = ThaiBuildingImportance.STANDARD) -> Dict[str, Any]:
-        """Get quick wind load summary for a province"""
-        zone, basic_speed, zone_desc = self.get_wind_zone_for_province(province)
-        terrain = ThaiTerrainCategory.CATEGORY_III
-        
-        design_pressure = self.calculate_design_wind_pressure(
-            basic_speed, building_height, terrain, building_importance
+        """Deprecated 'quick summary' must not imply a fully calculated wind load."""
+        raise NotImplementedError(
+            "Province-based wind load summary is NOT VERIFIED. Supply terrain, "
+            "least width and public status to the clause-17 minimum-pressure API."
         )
-        
-        force_per_sqm = design_pressure * 0.8
-        
-        return {
-            'province': province,
-            'wind_zone': zone.value,
-            'zone_description': zone_desc,
-            'basic_wind_speed_ms': basic_speed,
-            'basic_wind_speed_kmh': basic_speed * 3.6,
-            'design_pressure_pa': design_pressure,
-            'design_pressure_kpa': design_pressure / 1000,
-            'force_per_sqm_n': force_per_sqm,
-            'force_per_sqm_kgf': force_per_sqm / 9.80665,
-            'building_height_m': building_height,
-            'importance_category': building_importance.value,
-            'calculation_standard': 'TIS 1311-50 + Ministry Regulation B.E. 2566'
-        }
