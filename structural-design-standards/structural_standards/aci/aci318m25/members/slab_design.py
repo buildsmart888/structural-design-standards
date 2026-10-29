@@ -124,99 +124,24 @@ class ACI318M25SlabDesign(SlabDesign):
             '30M': 700
         }
     
-    def calculate_minimum_thickness(self, geometry: SlabGeometry) -> float:
-        """
-        Calculate minimum slab thickness per ACI 318M-25 Table 7.3.1.1
-        """
-        longer_span = max(geometry.length_x, geometry.length_y)
-        
-        if geometry.slab_type == SlabType.ONE_WAY:
-            support_type = list(geometry.support_conditions.values())[0]
-            if support_type == SupportCondition.SIMPLY_SUPPORTED:
-                ratio = 20
-            elif support_type == SupportCondition.FIXED:
-                ratio = 28
-            elif support_type == SupportCondition.CONTINUOUS:
-                ratio = 24
-            else:  # Cantilever
-                ratio = 10
-                
-            h_min = longer_span / ratio
-            
-        else:  # Two-way slabs
-            # Two-way slab without beams - ACI 318M-25 Section 8.3.1.1
-            ln = longer_span - 200  # Assume 200mm support width
-            h_min = ln * (0.8 + self.steel.fy / 1400) / 36
-            h_min = max(h_min, 125)  # 125mm minimum
-            
-        return h_min
-    
-    def calculate_slab_moments_two_way(self, geometry: SlabGeometry,
-                                     loads: SlabLoads) -> SlabMoments:
-        """
-        Calculate moments for two-way slabs using Direct Design Method
-        Enhanced from original aci318m25_slab.py with unit fix
-        """
-        # Total factored load
-        wu = ((loads.dead_load + loads.superimposed_dead) * loads.load_factors['D'] + 
-              loads.live_load * loads.load_factors['L'])
-        
-        # Convert dimensions to meters (FIXED unit conversion issue)
-        lx = min(geometry.length_x, geometry.length_y) / 1000  # mm to m
-        ly = max(geometry.length_x, geometry.length_y) / 1000  # mm to m
-        
-        # Total static moments - ACI 318M-25 Direct Design Method
-        Mo_x = wu * lx * ly**2 / 8  # kN⋅m
-        Mo_y = wu * ly * lx**2 / 8  # kN⋅m
-        
-        # Moment distribution (simplified)
-        return SlabMoments(
-            moment_x_positive=0.35 * Mo_x,
-            moment_x_negative=0.65 * Mo_x, 
-            moment_y_positive=0.35 * Mo_y,
-            moment_y_negative=0.65 * Mo_y,
-            shear_x=wu * ly / 2,
-            shear_y=wu * lx / 2
+    def calculate_minimum_thickness(self, *args, **kwargs):
+        raise NotImplementedError(
+            "ACI slab calculate_minimum_thickness NOT VERIFIED: span/support geometry, "
+            "code method eligibility, bar layout and complete limit states required"
         )
-    
-    def design_flexural_reinforcement(self, 
-                                    moment: float,
-                                    width: float,
-                                    effective_depth: float) -> Dict[str, float]:
-        """
-        Design flexural reinforcement per ACI 318M-25 Chapter 9
-        """
-        if moment <= 0:
-            return self._design_minimum_reinforcement(width, effective_depth)
-        
-        # Material properties
-        fc = self.concrete.fc_prime
-        fy = self.steel.fy
-        phi = self.phi_factors['flexure']
-        
-        # Convert moment to N⋅mm
-        Mu = moment * 1e6
-        
-        # Calculate required reinforcement using Whitney stress block
-        Ru = Mu / (phi * width * effective_depth**2)
-        
-        # Reinforcement ratio
-        rho = (0.85 * fc / fy) * (1 - math.sqrt(1 - 2 * Ru / (0.85 * fc)))
-        
-        # Check limits
-        rho_min = max(1.4 / fy, 0.0020)  # ACI minimum 
-        rho_max = 0.025  # Practical maximum
-        
-        rho = max(rho, rho_min)
-        if rho > rho_max:
-            raise ValueError("Required reinforcement exceeds maximum")
-        
-        # Required area
-        As_required = rho * width * effective_depth
-        
-        # Select reinforcement
-        return self._select_reinforcement(As_required, width)
-    
+
+    def calculate_slab_moments_two_way(self, *args, **kwargs):
+        raise NotImplementedError(
+            "ACI slab calculate_slab_moments_two_way NOT VERIFIED: span/support geometry, "
+            "code method eligibility, bar layout and complete limit states required"
+        )
+
+    def design_flexural_reinforcement(self, *args, **kwargs):
+        raise NotImplementedError(
+            "ACI slab design_flexural_reinforcement NOT VERIFIED: span/support geometry, "
+            "code method eligibility, bar layout and complete limit states required"
+        )
+
     def _design_minimum_reinforcement(self, width: float, depth: float) -> Dict[str, float]:
         """Design minimum reinforcement for temperature/shrinkage.
 
@@ -251,124 +176,60 @@ class ACI318M25SlabDesign(SlabDesign):
         
         raise ValueError("Cannot find suitable reinforcement")
     
-    def design_one_way_slab(self, 
-                          moment_ultimate: float,
-                          slab_thickness: float, 
-                          slab_width: float = 1000.0) -> Dict[str, float]:
-        """Design one-way slab per ACI 318M-25"""
-        effective_depth = slab_thickness - self.concrete.get_minimum_cover_requirements()['slab']
-        
-        return self.design_flexural_reinforcement(
-            moment_ultimate, slab_width, effective_depth
+    def design_one_way_slab(self, *args, **kwargs):
+        raise NotImplementedError(
+            "ACI slab design_one_way_slab NOT VERIFIED: span/support geometry, "
+            "code method eligibility, bar layout and complete limit states required"
         )
-    
-    def design_two_way_slab(self,
-                          moment_x: float,
-                          moment_y: float,
-                          slab_thickness: float) -> Dict[str, Dict[str, float]]:
-        """Design two-way slab reinforcement"""
-        effective_depth = slab_thickness - self.concrete.get_minimum_cover_requirements()['slab']
-        
-        return {
-            'x_direction': self.design_flexural_reinforcement(moment_x, 1000.0, effective_depth),
-            'y_direction': self.design_flexural_reinforcement(moment_y, 1000.0, effective_depth - 20)  # Layer spacing
-        }
-    
-    def check_punching_shear(self,
-                           punching_force: float,
-                           column_width: float,
-                           column_depth: float, 
-                           slab_thickness: float) -> DesignCheck:
-        """Check punching shear per ACI 318M-25 Chapter 22"""
-        effective_depth = slab_thickness - self.concrete.get_minimum_cover_requirements()['slab']
-        
-        # Critical perimeter
-        bo = 2 * (column_width + column_depth + 2 * effective_depth)
-        
-        # Concrete punching shear strength
-        fc = self.concrete.fc_prime
-        lambda_factor = self.concrete.shear_strength_factor()
-        vc = 0.17 * lambda_factor * math.sqrt(fc) * bo * effective_depth / 1000  # kN
-        
-        phi_Vc = self.phi_factors['shear'] * vc
-        
-        return self.create_design_check(
-            name="Punching Shear",
-            actual_value=punching_force,
-            limit_value=phi_Vc,
-            units="kN",
-            description="Punching shear check at column",
-            code_reference="ACI 318M-25 Section 22.6"
+
+    def design_two_way_slab(self, *args, **kwargs):
+        raise NotImplementedError(
+            "ACI slab design_two_way_slab NOT VERIFIED: span/support geometry, "
+            "code method eligibility, bar layout and complete limit states required"
         )
-    
-    def check_minimum_thickness(self,
-                              span_length: float,
-                              support_conditions: str,
-                              provided_thickness: float) -> DesignCheck:
-        """Check minimum thickness per ACI 318M-25"""
-        ratios = {
-            'simply_supported': 20,
-            'fixed': 28, 
-            'continuous': 24,
-            'cantilever': 10
-        }
-        
-        ratio = ratios.get(support_conditions, 20)
-        min_thickness = span_length / ratio
-        # 7.3.1.1.1: for fy other than 420 MPa multiply by (0.4 + fy/700)
-        min_thickness *= (0.4 + self.steel.fy / 700.0)
-        
-        return self.create_design_check(
-            name="Minimum Thickness",
-            actual_value=provided_thickness,
-            limit_value=min_thickness,
-            units="mm",
-            description="Minimum thickness requirement",
-            code_reference="ACI 318M-25 Table 7.3.1.1",
-            is_lower_bound=True
+
+    def check_punching_shear(self, *args, **kwargs):
+        raise NotImplementedError(
+            "ACI slab check_punching_shear NOT VERIFIED: span/support geometry, "
+            "code method eligibility, bar layout and complete limit states required"
         )
-    
-    def design(self, geometry: SlabGeometry, loads: SlabLoads) -> DesignResult:
-        """Complete slab design"""
-        result = DesignResult(
-            member_type="slab",
-            design_method="ACI 318M-25", 
+
+    def check_minimum_thickness(self, *args, **kwargs):
+        raise NotImplementedError(
+            "ACI slab check_minimum_thickness NOT VERIFIED: span/support geometry, "
+            "code method eligibility, bar layout and complete limit states required"
+        )
+
+    def design(self, *args, **kwargs) -> DesignResult:
+        """Never return PASS after the invalid one-way or Direct Design shortcuts."""
+        return DesignResult(
+            member_type="slab", design_method="ACI 318M-25 NOT VERIFIED",
             overall_status=DesignStatus.NOT_CHECKED,
-            utilization_ratio=0.0
+            utilization_ratio=float("inf"),
+            warnings=["Slab flexure/deflection/one- and two-way shear, valid "
+                      "support conditions, Direct Design Method eligibility, "
+                      "actual bar sizes/layers and detailing NOT VERIFIED."],
         )
-        
-        try:
-            # Calculate moments
-            if geometry.slab_type == SlabType.ONE_WAY:
-                # One-way slab design
-                wu = loads.dead_load * loads.load_factors['D'] + loads.live_load * loads.load_factors['L']
-                span = max(geometry.length_x, geometry.length_y) / 1000
-                moment = wu * span**2 / 8  # Simply supported
-                
-                reinforcement = self.design_one_way_slab(moment, geometry.thickness)
-                
-            else:
-                # Two-way slab design  
-                moments = self.calculate_slab_moments_two_way(geometry, loads)
-                reinforcement = self.design_two_way_slab(
-                    moments.moment_x_positive,
-                    moments.moment_y_positive,
-                    geometry.thickness
-                )
-            
-            result.required_reinforcement = reinforcement
-            result.overall_status = DesignStatus.PASS
-            
-            # Add design checks
-            thickness_check = self.check_minimum_thickness(
-                max(geometry.length_x, geometry.length_y),
-                'continuous',
-                geometry.thickness
-            )
-            result.add_strength_check(thickness_check)
-            
-        except Exception as e:
-            result.overall_status = DesignStatus.FAIL
-            result.notes.append(f"Design error: {str(e)}")
-        
-        return result
+
+    def check_strength(self, *args, **kwargs) -> List[DesignCheck]:
+        raise NotImplementedError("Full ACI 318-25 slab strength NOT VERIFIED")
+
+    def check_serviceability(self, *args, **kwargs) -> List[DesignCheck]:
+        raise NotImplementedError("Full slab deflection and crack control NOT VERIFIED")
+
+    @staticmethod
+    def simply_supported_strip_actions(
+            uniform_factored_load_kN_per_m2: float,
+            clear_span_m: float, strip_width_m: float = 1.0) -> Dict[str, float]:
+        """Pure statics for a KNOWN one-way, simply supported uniform-load strip.
+
+        Mu=wL^2/8 and Vu=wL/2. Does not check ACI design, supports, SLS.
+        """
+        for name,v in (("w",uniform_factored_load_kN_per_m2),
+                       ("span",clear_span_m),("strip width",strip_width_m)):
+            if not math.isfinite(v) or v <= 0:
+                raise ValueError(f"{name} must be positive finite")
+        line_load = uniform_factored_load_kN_per_m2*strip_width_m
+        return {"Mu_kNm":line_load*clear_span_m**2/8,
+                "Vu_kN":line_load*clear_span_m/2,
+                "scope":"simply supported uniform strip statics only"}
