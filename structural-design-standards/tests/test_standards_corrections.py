@@ -138,15 +138,16 @@ def test_lightweight_concrete_coefficient_lengthens_development_length():
 
 # ---------------------------------------------------------------- beam shear/deflection
 def test_beam_shear_coefficients_are_si():
-    """Table 22.5.5.1 / 22.5.1.2 / 25.7.2.1.2 in N, mm, MPa: no 1000x factor."""
-    import inspect
-    import structural_standards.aci.aci318m25.members.beam_design as beam
-    src = inspect.getsource(beam)
-    assert '1e6**0.5' not in src
-    assert '0.17 * lambda_factor' in src
-    assert '0.66 * sqrt_fc' in src
-
-
+    """No hidden 1000 factor: phi Vc from concrete N/mm2 and geometry mm."""
+    from structural_standards.aci.aci318m25.members.beam_design import (
+        ACI318M25BeamDesign, BeamGeometry)
+    from structural_standards.aci.aci318m25.materials.steel import ACI318M25ReinforcementSteel
+    b = ACI318M25BeamDesign(ACI318M25Concrete(fc_prime=28),
+                             ACI318M25ReinforcementSteel('20M'))
+    g = BeamGeometry(width=300, height=600, effective_depth=550, span_length=6000)
+    result = b.design_shear_reinforcement(g, 180.0, 1000.0)
+    expected = 0.75 * 0.17 * math.sqrt(28) * 300 * 550 / 1000
+    assert result.design_capacities["phi_Vc_kN"] == pytest.approx(expected)
 
 
 def test_cracking_moment_is_in_n_mm():
@@ -164,12 +165,20 @@ def test_deflection_expression_has_no_thousand_fold_divisor():
 
 # ---------------------------------------------------------------- column
 def test_column_max_axial_strength_per_table_22421():
-    """Table 22.4.2.1: Pn,max = 0.80 Po for tied, 0.85 Po for spirally reinforced."""
-    import inspect
-    import structural_standards.aci.aci318m25.members.column_design as column
-    src = inspect.getsource(column)
-    assert '(0.85 if spiral else 0.80)' in src
-    assert 'min(self.fy, 550.0)' in src
+    """Tied factor .8 and spiral .85 explicitly from transverse reinforcement."""
+    from structural_standards.aci.aci318m25.members.column_design import (
+        ACI318M25ColumnDesign, ColumnGeometry)
+    from structural_standards.aci.aci318m25.materials.steel import ACI318M25ReinforcementSteel
+    c = ACI318M25ColumnDesign(ACI318M25Concrete(fc_prime=28),
+                              ACI318M25ReinforcementSteel("20M"))
+    ties = c.calculate_concentric_axial_upper_bound(
+        ColumnGeometry(400,400,3000,transverse_reinforcement="ties"),3200)
+    spiral = c.calculate_concentric_axial_upper_bound(
+        ColumnGeometry(400,400,3000,transverse_reinforcement="spiral"),3200)
+    assert ties["phi_compression"] == pytest.approx(0.65)
+    assert ties["max_axial_factor"] == pytest.approx(0.80)
+    assert spiral["phi_compression"] == pytest.approx(0.75)
+    assert spiral["max_axial_factor"] == pytest.approx(0.85)
 
 
 def test_column_phi_no_longer_keyed_to_section_shape():
@@ -199,14 +208,12 @@ def test_slab_shrinkage_minimum_reinforcement_tiers(fy, expected_rho):
 
 
 def test_minimum_thickness_includes_fy_multiplier_once():
-    """7.3.1.1.1 requires the table values to be multiplied by (0.4 + fy/700)."""
-    import inspect
-    import structural_standards.aci.aci318m25.members.slab_design as slab
-    src = inspect.getsource(slab)
-    assert src.count('min_thickness *= (0.4 + self.steel.fy / 700.0)') == 1
+    """Do not certify minimum thickness from guessed support dimensions."""
+    from structural_standards.aci.aci318m25.members.slab_design import ACI318M25SlabDesign
+    with pytest.raises(NotImplementedError):
+        ACI318M25SlabDesign.calculate_minimum_thickness(None, None)
 
 
-# ---------------------------------------------------------------- wall / footing units
 def test_wall_axial_force_unit_consistency():
     """(kN/m) * (mm) is already N; the extra *1000 made every wall check fail."""
     import inspect
@@ -223,15 +230,24 @@ def test_wall_pressure_converted_from_kPa_to_N_per_mm2():
 
 
 def test_footing_shear_and_bearing_pressure_share_one_force_unit():
-    """qu is kN/m2 and dimensions are mm, so forces need /1e6 to be kN."""
-    import inspect
-    import structural_standards.aci.aci318m25.members.footing_design as footing
-    src = inspect.getsource(footing)
-    assert 'cantilever * geometry.width / 1e6' in src
-    assert 'cantilever * geometry.width / 1000' not in src
+    """2x2m x0.5m footing, P=800kN, Mx=20kNm, My=10kNm, qa=250kPa."""
+    from structural_standards.aci.aci318m25.members.footing_design import (
+        ACI318M25FootingDesign, FootingGeometry, ColumnLoads, SoilProperties)
+    from structural_standards.aci.aci318m25.materials.steel import ACI318M25ReinforcementSteel
+    from structural_standards.base.design_base import DesignStatus
+    f = ACI318M25FootingDesign(ACI318M25Concrete(fc_prime=28),
+                               ACI318M25ReinforcementSteel("20M"))
+    geo = FootingGeometry(length=2000,width=2000,thickness=500)
+    loads = ColumnLoads(axial_dead=500,axial_live=300,
+                         moment_x_dead=20,moment_y_live=10)
+    check = f.check_service_bearing_pressure(geo,loads,SoilProperties(250))
+    assert check.value == pytest.approx(234.5)
+    assert check.status is DesignStatus.PASS
+    # Passing service soil bearing alone MUST NOT certify complete footing.
+    result = f.design(loads,SoilProperties(250),target_geometry=geo)
+    assert result.overall_status is DesignStatus.NOT_CHECKED
 
 
-# ---------------------------------------------------------------- Thai units / zoning
 def test_ksc_conversion_uses_the_correct_definition():
     """1 ksc = 1 kgf/cm2 = 0.0980665 MPa. The old factor was 10x too large."""
     assert mpa_to_ksc(1.0) == pytest.approx(1.0 / KSC_IN_MPA)
@@ -253,16 +269,15 @@ def test_thai_grade_parsing_is_case_insensitive(grade):
 
 
 def test_provincial_wind_zone_delegates_to_wind_module():
-    """ministry_regulation used to report Bangkok at 35 m/s; TIS mapping is 25 m/s."""
-    reg = ThaiMinistryRegulation2566()
-    assert reg.get_wind_zone_data('กรุงเทพมหานคร')['wind_speed'] == pytest.approx(25.0)
+    """Reject fabricated regional design wind speeds; use regulation clause 17."""
+    with pytest.raises(NotImplementedError):
+        ThaiMinistryRegulation2566().get_wind_zone_data("กรุงเทพมหานคร")
 
 
 def test_provincial_seismic_zone_delegates_to_seismic_module():
-    """Chiang Mai was listed as 0.15g while the seismic module says 0.40g."""
-    reg = ThaiMinistryRegulation2566()
-    assert reg.get_seismic_zone_data('เชียงใหม่')['pga'] == pytest.approx(0.40)
-    assert reg.get_seismic_zone_data('กรุงเทพมหานคร')['pga'] == pytest.approx(0.15)
+    """Seismic hazard needs site-specific spectra, not guessed province PGA."""
+    with pytest.raises(NotImplementedError):
+        ThaiMinistryRegulation2566().get_seismic_zone_data("เชียงใหม่")
 
 
 def test_validation_error_is_a_value_error():
