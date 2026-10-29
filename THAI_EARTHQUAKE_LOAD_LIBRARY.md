@@ -1,3 +1,12 @@
+> **ENGINEERING SAFETY NOTICE (2026-10-29): UNVERIFIED / DO NOT USE FOR DESIGN APPROVAL.**
+> The ACI/Thai calculation library has unresolved code-compliance and integration
+> gaps. Numerical fixes are in progress on the audit branch. Only limited,
+> explicitly documented statics or sectional calculations are available;
+> a "PASS" for one check does not certify a member or building. See
+> [ENGINEERING_VALIDATION_STATUS.md](ENGINEERING_VALIDATION_STATUS.md).
+> Current 2026 code applicability and site-specific inputs require independent
+> licensed-engineer review.
+
 # Thai Earthquake Load Library
 # ไลบรารีการคำนวณแรงแผ่นดินไหวประเทศไทย
 
