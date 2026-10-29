@@ -144,6 +144,10 @@ class ThaiConcrete(ConcreteMaterial):
                 raise ValueError(f"Unknown Thai concrete grade: {grade}")
             
             props = self.THAI_CONCRETE_GRADES[grade_enum]
+            if (fc_prime is not None
+                    and not math.isclose(fc_prime, props.fc_mpa,
+                                         rel_tol=0, abs_tol=1e-6)):
+                raise ValueError("Conflicting concrete grade (ksc) and fc_prime (MPa)")
             fc_prime = props.fc_mpa
             grade = props.grade  # canonical grade for properties and reports
             
