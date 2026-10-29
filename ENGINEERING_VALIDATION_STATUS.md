@@ -67,3 +67,36 @@
 
 **The audit PR remains open and should not be merged or released as a fully
 code-compliant structural-design package until these blockers are cleared.**
+
+## Additional safety fixes after the original audit
+
+- **Thai material constants**: all Fc180/Fc210/Fc240/Fc280/Fc350 grades
+  are now converted from kgf/cm2 to MPa using **0.0980665 MPa/ksc**;
+  likewise SR24/SD40/SD50 properties. For example Fc210 = 20.593965 MPa,
+  not 21.0 MPa. Source: NIST SP 811 pressure/stress conversions:
+  https://www.nist.gov/pml/special-publication-811/nist-guide-si-appendix-b-conversion-factors/nist-guide-si-appendix-b9
+- **Material honesty**: custom strengths are no longer labeled as the
+  nearest standardized grade; conflicting simultaneous grade/strength
+  inputs raise errors. Generic Fc-based cement/slump/durability acceptance
+  and arbitrary Fu=1.5Fy have been disabled.
+- **Rebar anchorage**: the earlier `(cb+Ktr)/db = 2.5` default assumed
+  maximum confinement without measuring cover or bar spacing. It may
+  underestimate development length. Legacy automatic `ld` and Class A
+  splice selections now raise NOT VERIFIED. A dimensioned expression
+  helper accepts all explicit code factors and real confinement inputs
+  but does NOT certify detailing.
+- **Thai compliance claims**: project reports no longer mark building
+  COMPLIANT from grade metadata, made-up cover or material coefficients.
+  Generic cover/deflection/construction tolerances that have not been
+  confirmed against the governing DPT standards are disabled.
+- **Private code paths**: nonvalidated internal ACI wall, diaphragm,
+  and footing force/capacity approximations now raise instead of
+  being callable as implicit engineering capacity checks.
+- **CI environment**: GitHub Actions jobs on PR #1 currently conclude
+  failure **before any runner/step executes**; no passing suite can be
+  claimed. Follow issue #2:
+  https://github.com/buildsmart888/structural-design-standards/issues/2
+- **PR safety gate**: PR #1 is intentionally in DRAFT status and main
+  remains unchanged until numeric verification, code/edition review,
+  and actual passing automated tests are documented.
+
