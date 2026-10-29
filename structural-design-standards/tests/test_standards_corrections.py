@@ -214,19 +214,24 @@ def test_minimum_thickness_includes_fy_multiplier_once():
         ACI318M25SlabDesign.calculate_minimum_thickness(None, None)
 
 
-def test_wall_axial_force_unit_consistency():
-    """(kN/m) * (mm) is already N; the extra *1000 made every wall check fail."""
-    import inspect
-    import structural_standards.aci.aci318m25.members.wall_design as wall
-    assert 'geometry.length * 1000' not in inspect.getsource(wall)
+def test_legacy_wall_axial_private_check_is_disabled():
+    """Wall design cannot return bogus PASS based on wrong kN/m -> N conversion."""
+    from structural_standards.aci.aci318m25.members.wall_design import ACI318M25WallDesign
+    from structural_standards.aci.aci318m25.materials.steel import ACI318M25ReinforcementSteel
+    wall=ACI318M25WallDesign(ACI318M25Concrete(fc_prime=28),
+                             ACI318M25ReinforcementSteel("20M"))
+    with pytest.raises(NotImplementedError):
+        wall._check_axial_strength(None,None)
 
 
-def test_wall_pressure_converted_from_kPa_to_N_per_mm2():
-    import inspect
-    import structural_standards.aci.aci318m25.members.wall_design as wall
-    src = inspect.getsource(wall)
-    assert 'total_lateral_pressure * 1e-6' in src
-    assert 'total_lateral_pressure * 1000' not in src
+def test_legacy_wall_pressure_private_check_is_disabled():
+    """kPa/mm conversions need actual wall geometry and factored combinations."""
+    from structural_standards.aci.aci318m25.members.wall_design import ACI318M25WallDesign
+    from structural_standards.aci.aci318m25.materials.steel import ACI318M25ReinforcementSteel
+    wall=ACI318M25WallDesign(ACI318M25Concrete(fc_prime=28),
+                             ACI318M25ReinforcementSteel("20M"))
+    with pytest.raises(NotImplementedError):
+        wall._check_flexural_strength(None,None,None)
 
 
 def test_footing_shear_and_bearing_pressure_share_one_force_unit():
