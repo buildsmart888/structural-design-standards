@@ -185,7 +185,7 @@ def design_flexural_reinforcement(self, geometry: BeamGeometry,
             warnings.append("Service cracking/deflection NOT CHECKED; moment_service unused")
         return DesignResult(
             member_type="beam", design_method="ACI 318M-25",
-            overall_status=DesignStatus.PASS if ok else DesignStatus.FAIL,
+            overall_status=DesignStatus.NOT_CHECKED if ok else DesignStatus.FAIL,
             utilization_ratio=utilization, strength_checks=checks[:1],
             detailing_checks=checks[1:],
             design_forces={"moment_ultimate_kNm": moment_ultimate},
@@ -196,7 +196,8 @@ def design_flexural_reinforcement(self, geometry: BeamGeometry,
                                     "As_min_mm2": As_min,
                                     "As_max_tension_controlled_mm2": As_max},
             warnings=warnings,
-            notes=["Sectional rectangular flexure only; detailing and serviceability require separate checks."],
+            notes=["Strength check may PASS, but complete member is NOT VERIFIED until "
+                   "all required limit states and detailing have been checked."],
         )
 
 def design_shear_reinforcement(self, geometry: BeamGeometry,
@@ -261,7 +262,7 @@ def design_shear_reinforcement(self, geometry: BeamGeometry,
             warnings.append("Stirrup spacing below 50 mm constructability screening limit")
         return DesignResult(
             member_type="beam", design_method="ACI 318M-25",
-            overall_status=(DesignStatus.PASS if strength_ok and spacing_ok
+            overall_status=(DesignStatus.NOT_CHECKED if strength_ok and spacing_ok
                             else DesignStatus.FAIL),
             utilization_ratio=utilization, strength_checks=checks[:2],
             detailing_checks=checks[2:],
