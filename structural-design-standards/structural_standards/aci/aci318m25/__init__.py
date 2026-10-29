@@ -129,36 +129,20 @@ def create_concrete(fc_prime: float, unit_weight: float = 24.0) -> ACI318M25Conc
     """
     return ACI318M25Concrete(fc_prime=fc_prime, unit_weight=unit_weight)
 
-def create_reinforcement(bar_designation: str, fy: float = 420.0) -> ACI318M25ReinforcementSteel:
-    """
-    Create ACI 318M-25 reinforcement steel
-    
-    Parameters:
-    -----------
-    bar_designation : str
-        Bar designation (e.g., "DB20", "#8")
-    fy : float
-        Yield strength (MPa), default 420.0
-        
-    Returns:
-    --------
-    ACI318M25ReinforcementSteel
-        Reinforcement steel object
-    """
-    return ACI318M25ReinforcementSteel(bar_designation=bar_designation)
+def create_reinforcement(bar_designation: str,
+                         fy: float = 420.0) -> ACI318M25ReinforcementSteel:
+    """Build the EXPLICIT requested nominal grade; never silently return 420.
 
-# def create_load_combinations() -> ACI318M25LoadCombinations:
-#     """
-#     Create ACI 318M-25 load combinations object
-#     
-#     Returns:
-#     --------
-#     ACI318M25LoadCombinations
-#         Load combinations calculator
-#     """
-#     return ACI318M25LoadCombinations()
+    ACI rebar database currently lists Grade 280, 420, 520.
+    Other grades require a separately verified material specification.
+    """
+    grades = {280.0: "GRADE280", 420.0: "GRADE420", 520.0: "GRADE520"}
+    if fy not in grades:
+        raise ValueError(f"Unsupported reinforcement fy={fy} MPa; known: {list(grades)}")
+    return ACI318M25ReinforcementSteel(
+        bar_designation=bar_designation, grade=grades[fy]
+    )
 
-# Standard material combinations
 def get_standard_concrete_grades() -> dict:
     """Get dictionary of standard concrete grades with their properties"""
     return {
@@ -171,11 +155,11 @@ def get_standard_concrete_grades() -> dict:
     }
 
 def get_standard_reinforcement_grades() -> dict:
-    """Get dictionary of standard reinforcement grades"""
+    """Grade keys and actual fy now agree (not a substitute for mill certs)."""
     return {
-        'grade420': create_reinforcement("20M"),
-        'grade520': create_reinforcement("25M"),
-        'grade620': create_reinforcement("30M")
+        "grade280": create_reinforcement("20M", 280.0),
+        "grade420": create_reinforcement("20M", 420.0),
+        "grade520": create_reinforcement("20M", 520.0),
     }
 
 # Usage examples
