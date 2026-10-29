@@ -115,18 +115,14 @@ class ACI318M25Steel(SteelMaterial):
         self._validate_aci_requirements()
     
     def _validate_aci_requirements(self) -> None:
-        """Validate inputs according to ACI 318M-25 requirements"""
-        # ACI 318M-25 Section 20.2.2.1 - minimum requirements
-        if self.fy < 280.0:
-            raise ValueError("ACI 318M-25: Minimum fy is 280 MPa for reinforcement")
-        
-        if self.fy > 550.0:
-            raise ValueError("ACI 318M-25: Maximum fy is 550 MPa (Section 20.2.2.1)")
-        
-        # Check fu/fy ratio
-        if self.fu / self.fy < 1.25:
-            raise ValueError("ACI 318M-25: fu/fy ratio must be ≥ 1.25")
-    
+        """Structural steel != rebar: A36 fy=250MPa is an allowed steel grade.
+
+        Steel member design still requires the applicable structural steel code.
+        """
+        if (not math.isfinite(self.fy) or not math.isfinite(self.fu)
+                or self.fy <= 0 or self.fu < self.fy):
+            raise ValueError("Structural steel must have finite Fu >= Fy > 0")
+
     def elastic_modulus(self) -> float:
         """
         Get elastic modulus per ACI 318M-25
@@ -396,51 +392,24 @@ class ACI318M25ReinforcementSteel(ReinforcementSteel):
         return self.bar_properties['mass']
     
     def get_minimum_bend_diameter(self, bend_angle: float = 90.0) -> float:
+        """ACI longitudinal STANDARD hook bend; not ties/seismic hooks.
+
+        #3-#8: 6db; #9-#11: 8db; #14-#18: 10db.
+        Extension length must be checked separately.
         """
-        Get minimum bend diameter per ACI 318M-25 Section 25.3.2
-        
-        Parameters:
-        -----------
-        bend_angle : float
-            Bend angle in degrees (90°, 135°, 180°)
-            
-        Returns:
-        --------
-        float
-            Minimum bend diameter (mm)
-        """
+        if bend_angle not in (90.0, 180.0):
+            raise NotImplementedError("Tie/seismic hook bend needs its own rule")
         db = self.bar_diameter()
-        
-        # ACI 318M-25 Table 25.3.2
-        if db <= 25.0:  # ≤ 25M bars
-            if bend_angle <= 90.0:
-                return 6 * db
-            else:  # 135° and 180° bends
-                return 6 * db
-        else:  # > 25M bars
-            if bend_angle <= 90.0:
-                return 8 * db
-            else:  # 135° and 180° bends
-                return 10 * db
-    
+        if db <= 25.4:
+            return 6 * db
+        elif db <= 35.8:
+            return 8 * db
+        return 10 * db
+
     def get_maximum_spacing(self, member_thickness: float) -> float:
-        """
-        Get maximum spacing per ACI 318M-25 Section 7.6.5
-        
-        Parameters:
-        -----------
-        member_thickness : float
-            Member thickness (mm)
-            
-        Returns:
-        --------
-        float
-            Maximum spacing (mm)
-        """
-        # ACI 318M-25 Section 7.6.5.1 for slabs
-        # Lesser of 3h or 500 mm
-        return min(3 * member_thickness, 500.0)
-    
+        """No universal ACI max spacing without slab type and reinforcement role."""
+        raise NotImplementedError("Spacing requires slab system, layer, cover and design checks")
+
     def calculate_area_per_meter(self, spacing: float) -> float:
         """
         Calculate reinforcement area per meter width
@@ -455,6 +424,8 @@ class ACI318M25ReinforcementSteel(ReinforcementSteel):
         float
             Area per meter (mm²/m)
         """
+        if not math.isfinite(spacing) or spacing <= 0:
+            raise ValueError("Spacing must be a finite positive mm value")
         return (self.bar_area() * 1000.0) / spacing
     
     def get_design_properties(self) -> Dict[str, float]:
