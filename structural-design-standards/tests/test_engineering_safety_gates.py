@@ -335,3 +335,56 @@ def test_aci_rebar_factory_honors_fy_and_does_not_fake_620():
     grades=get_standard_reinforcement_grades()
     assert grades["grade280"].fy == pytest.approx(280)
     assert grades["grade520"].fy == pytest.approx(520)
+
+
+def test_thai_project_compliance_cannot_pass_without_structure():
+    from structural_standards.thai.ministry_2566.ministry_regulation import (
+        ThaiMinistryRegulation2566, ThaiProjectData)
+    from structural_standards.thai.ministry_2566.design_requirements import ThaiEnvironmentType
+    # Use an actual enumeration value; the fake compliance routine must not
+    # pretend to verify cover or national safety factors from only grade names.
+    env = next(iter(ThaiEnvironmentType))
+    reg=ThaiMinistryRegulation2566()
+    project=ThaiProjectData(project_name="Regression Test",
+                            location="Bangkok",environment_type=env,
+                            concrete_grade="Fc210",steel_grade="SD40")
+    checks=reg.check_project_compliance(project)
+    assert checks and all(not c.is_compliant for c in checks)
+    report=reg.generate_compliance_report(project,checks)
+    assert "NOT VERIFIED" in report
+    assert "COMPLIANT" not in report.split("Overall Status:")[-1].split("\n")[0]
+
+
+def test_thai_deflection_compliance_does_not_certify_generic_ratio():
+    from structural_standards.thai.ministry_2566.design_requirements import (
+        ThaiMinistryDesignRequirements, ThaiSupportType)
+    c=ThaiMinistryDesignRequirements()
+    with pytest.raises(NotImplementedError):
+        c.check_deflection_compliance(
+            actual_deflection=0,span_length=5000,
+            support_type=next(iter(ThaiSupportType)))
+
+
+def test_thai_concrete_mix_validation_no_blanket_pass():
+    from structural_standards.thai.ministry_2566.design_requirements import (
+        ThaiMinistryDesignRequirements)
+    with pytest.raises(NotImplementedError):
+        ThaiMinistryDesignRequirements().validate_concrete_mix()
+
+
+def test_aci_development_length_default_confinement_must_not_be_assumed():
+    s=ACI318M25Steel(grade="GRADE420")
+    with pytest.raises(NotImplementedError):
+        s.calculate_development_length(20,28)
+    with pytest.raises(NotImplementedError):
+        s.get_splice_length(20,28)
+
+
+def test_aci_dev_expression_with_explicit_confinement():
+    s=ACI318M25Steel(grade="GRADE420")
+    x=s.evaluate_development_expression_si(
+        fy_mpa=420,fc_mpa=28,db_mm=20,cb_mm=25,ktr_mm=0,
+        lambda_factor=1,psi_t=1,psi_e=1,psi_s=1,psi_g=1)
+    assert x["confinement_ratio_capped"] == pytest.approx(1.25)
+    assert x["general_expression_length_mm"] == pytest.approx(
+        420*20/(1.1*math.sqrt(28)*1.25))
