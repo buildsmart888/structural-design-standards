@@ -253,3 +253,85 @@ def test_135_degree_tie_hook_must_not_use_longitudinal_hook_table():
 def test_zero_bar_spacing_cannot_be_used():
     with pytest.raises(ValueError):
         steel().calculate_area_per_meter(0)
+
+
+def test_thai_grade_210_ksc_is_not_21_mpa():
+    from structural_standards.thai.ministry_2566.materials.concrete import (
+        ThaiConcrete, create_fc210)
+    c = create_fc210()
+    expected_mpa = 210.0 * 0.0980665
+    assert c.fc_prime == pytest.approx(expected_mpa)
+    assert c.strength_in_ksc() == pytest.approx(210.0)
+    assert c.grade_properties.fc_mpa == pytest.approx(expected_mpa)
+
+
+@pytest.mark.parametrize("grade,ksc",[
+    ("Fc180",180),("Fc210",210),("Fc240",240),
+    ("Fc280",280),("Fc350",350),
+])
+def test_all_thai_concrete_grades_convert_exactly(grade,ksc):
+    from structural_standards.thai.ministry_2566.materials.concrete import ThaiConcrete
+    c = ThaiConcrete(grade=grade)
+    assert c.fc_prime == pytest.approx(ksc*.0980665,rel=1e-10)
+    assert c.strength_in_ksc() == pytest.approx(ksc,rel=1e-10)
+
+
+def test_custom_concrete_mpa_must_not_be_mislabeled_as_nearest_grade():
+    from structural_standards.thai.ministry_2566.materials.concrete import ThaiConcrete
+    c = ThaiConcrete(fc_prime=23.0)
+    assert c.grade == "CUSTOM"
+    assert c.grade_properties is None
+
+
+@pytest.mark.parametrize("grade,fy_ksc,fu_ksc",[
+    ("SR24",2400,3800),("SD40",4000,6000),("SD50",5000,7000),
+])
+def test_thai_steel_strengths_are_physically_consistent(grade,fy_ksc,fu_ksc):
+    from structural_standards.thai.ministry_2566.materials.steel import ThaiSteel
+    s=ThaiSteel(grade=grade)
+    assert s.fy == pytest.approx(fy_ksc*.0980665,rel=1e-8)
+    assert s.fu == pytest.approx(fu_ksc*.0980665,rel=1e-8)
+    assert s.yield_strength_ksc() == pytest.approx(fy_ksc,rel=1e-8)
+
+
+def test_thai_custom_steel_requires_actual_fu():
+    from structural_standards.thai.ministry_2566.materials.steel import ThaiSteel
+    with pytest.raises(ValueError,match="Fu"):
+        ThaiSteel(fy=320)
+    c=ThaiSteel(fy=320,fu=500)
+    assert c.grade == "CUSTOM"
+
+
+def test_plain_and_deformed_bar_grade_must_match():
+    from structural_standards.thai.ministry_2566.materials.steel import ThaiReinforcementSteel
+    with pytest.raises(ValueError):
+        ThaiReinforcementSteel("RB9",steel_grade="SD40")
+    with pytest.raises(ValueError):
+        ThaiReinforcementSteel("DB12",steel_grade="SR24")
+
+
+def test_thai_phi_single_source_of_truth_from_load_combinations():
+    from structural_standards.thai.ministry_2566.materials.concrete import ThaiConcrete
+    c=ThaiConcrete(grade="Fc240")
+    assert c.get_strength_reduction_factors(
+        good_quality_control=False)["shear_and_torsion"] == pytest.approx(.70)
+    assert c.get_strength_reduction_factors(
+        good_quality_control=True)["shear_and_torsion"] == pytest.approx(.85)
+
+
+def test_thai_mix_table_not_proven_solely_by_concrete_grade():
+    from structural_standards.thai.ministry_2566.materials.concrete import ThaiConcrete
+    with pytest.raises(NotImplementedError):
+        ThaiConcrete(grade="Fc210").get_mix_requirements()
+
+
+def test_aci_rebar_factory_honors_fy_and_does_not_fake_620():
+    from structural_standards.aci.aci318m25 import (
+        create_reinforcement, get_standard_reinforcement_grades)
+    assert create_reinforcement("20M",280).fy == pytest.approx(280)
+    assert create_reinforcement("20M",520).fy == pytest.approx(520)
+    with pytest.raises(ValueError):
+        create_reinforcement("20M",620)
+    grades=get_standard_reinforcement_grades()
+    assert grades["grade280"].fy == pytest.approx(280)
+    assert grades["grade520"].fy == pytest.approx(520)
