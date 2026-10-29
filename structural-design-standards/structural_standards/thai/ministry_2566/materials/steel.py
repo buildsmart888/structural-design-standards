@@ -151,6 +151,12 @@ class ThaiSteel(SteelMaterial):
                 raise ValueError(f"Unknown Thai steel grade: {grade}")
             
             props = self.THAI_STEEL_GRADES[grade_enum]
+            if fy is not None and not math.isclose(
+                    fy, props.fy_mpa, rel_tol=0, abs_tol=1e-6):
+                raise ValueError("Conflicting steel grade (ksc) and fy (MPa)")
+            if fu is not None and not math.isclose(
+                    fu, props.fu_mpa, rel_tol=0, abs_tol=1e-6):
+                raise ValueError("Conflicting steel grade (ksc) and fu (MPa)")
             fy = props.fy_mpa
             fu = props.fu_mpa
             grade = props.grade  # canonical case, never a mismatched grade key
