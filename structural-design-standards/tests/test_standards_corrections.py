@@ -113,27 +113,27 @@ def test_tension_controlled_limit_follows_reinforcement_grade():
 
 
 # ---------------------------------------------------------------- development length
-def test_development_length_uses_si_equation():
-    """Eq. 25.4.2.4 (SI): ld = (1/1.1)*fy/(lam*sqrt(fc'))*db / ((cb+Ktr)/db)."""
-    steel = ACI318M25Steel(grade='GRADE420')
-    db, fc = 20.0, 28.0
-    expected = (1 / 1.1) * 420.0 / math.sqrt(fc) * db / 2.5
-    assert steel.calculate_development_length(db, fc) == pytest.approx(expected, rel=1e-9)
+def test_development_length_without_real_confinement_fails_closed():
+    """Never substitute the maximum allowable ratio cb+Ktr/db=2.5."""
+    steel=ACI318M25Steel(grade="GRADE420")
+    with pytest.raises(NotImplementedError):
+        steel.calculate_development_length(20.0,28.0)
 
 
-def test_development_length_is_a_plausible_multiple_of_bar_diameter():
-    """The old psi-derived constant returned roughly 1 db, which is not physical."""
-    steel = ACI318M25Steel(grade='GRADE420')
-    ld = steel.calculate_development_length(20.0, 28.0)
-    assert ld >= 10 * 20.0
+def test_development_expression_requires_actual_cb_ktr_and_modifiers():
+    steel=ACI318M25Steel(grade="GRADE420")
+    r=steel.evaluate_development_expression_si(
+        fy_mpa=420,fc_mpa=28,db_mm=20,cb_mm=25,ktr_mm=0,
+        lambda_factor=1,psi_t=1,psi_e=1,psi_s=1,psi_g=1)
+    expected=420*20/(1.1*math.sqrt(28)*(25/20))
+    assert r["general_expression_length_mm"] == pytest.approx(expected)
+    assert r["not_code_compliant_without_detail_checks"] is True
 
 
-def test_lightweight_concrete_coefficient_lengthens_development_length():
-    """lambda sits under the radical term: 1/lambda, so LWC must increase ld."""
-    import inspect
-    src = inspect.getsource(ACI318M25Steel.calculate_development_length)
-    assert 'lambda_factor * math.sqrt' in src          # lambda in the denominator
-    assert 'psi_s' not in src                          # replaced by psi_g in 318-25
+def test_automatic_class_a_lap_splice_is_prohibited():
+    steel=ACI318M25Steel(grade="GRADE420")
+    with pytest.raises(NotImplementedError):
+        steel.get_splice_length(20.0,28.0)
 
 
 # ---------------------------------------------------------------- beam shear/deflection
