@@ -1,5 +1,21 @@
 # Structural Design Standards Library
 
+> [!CAUTION]
+> **ENGINEERING VALIDATION INCOMPLETE — NOT FOR CONSTRUCTION DESIGN OR SIGN-OFF.**
+> This repository includes experimental implementations and legacy modules with unresolved
+> numerical, standards-edition, and integration defects. An earlier release claimed
+> full compliance without code-level independent validation. Do not rely on a PASS
+> status as evidence that all code checks were performed.
+>
+> The rectangular beam sectional flexure and preliminary shear methods have been
+> revised on the audit branch and supplied with independent regression cases, but
+> the entire suite has NOT been verified passing. Beam deflection now raises
+> `NotImplementedError` instead of passing on an assumed reinforcement area.
+> Column/footing/slab/wall design methods, soil settlement, two-way action, wind
+> and seismic maps, detailing and load combinations still need qualified review.
+> Confirm the exact governing standard edition and mandatory local provisions.
+
+
 **ไลบรารี Python สำหรับมาตรฐานการออกแบบโครงสร้างระดับนานาชาติ**  
 *Python Library for International Structural Design Standards*
 
