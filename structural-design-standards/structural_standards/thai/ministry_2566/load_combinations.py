@@ -62,12 +62,15 @@ class ThaiLoadCombination:
         float
             Combined load effect
         """
-        total = 0.0
-        for load_type, factor in self.factors.items():
-            if load_type in loads:
-                total += factor * loads[load_type]
-        return total
-    
+        if ThaiLoadType.DEAD not in loads:
+            raise ValueError("D (permanent load EFFECT) is required, even if zero")
+        for kind, magnitude in loads.items():
+            if not isinstance(kind, ThaiLoadType):
+                raise TypeError(f"Unknown Thai load key: {kind!r}")
+            if not isinstance(magnitude, (int, float)) or not math.isfinite(magnitude):
+                raise ValueError(f"Non-finite/non-numeric load effect: {kind}")
+        return sum(f * loads.get(t, 0.0) for t, f in self.factors.items())
+
     def get_equation(self) -> str:
         """Get load combination equation as string"""
         terms = []
@@ -338,32 +341,12 @@ class ThaiMinistryLoadCombinations:
             raise ValueError(f"Unknown failure mode: {failure_mode}")
     
     def validate_loads(self, loads: Dict[ThaiLoadType, float]) -> bool:
-        """
-        Validate load dictionary
-        
-        Parameters:
-        -----------
-        loads : Dict[ThaiLoadType, float]
-            Load values to validate
-            
-        Returns:
-        --------
-        bool
-            True if all loads are valid
-        """
-        try:
-            for load_type, value in loads.items():
-                if not isinstance(load_type, ThaiLoadType):
-                    raise ValueError(f"Invalid load type: {load_type}")
-                if not isinstance(value, (int, float)):
-                    raise ValueError(f"Load value must be numeric: {value}")
-                if value < 0:
-                    raise ValueError(f"Load value cannot be negative: {value}")
-            return True
-        except ValueError as e:
-            print(f"Load validation error: {e}")
-            return False
-    
+        """Signed internal-force effects are allowed; NaN/Inf are NEVER valid."""
+        return (ThaiLoadType.DEAD in loads
+                and all(isinstance(k, ThaiLoadType)
+                        and isinstance(v, (float, int))
+                        and math.isfinite(v) for k,v in loads.items()))
+
     def print_combination_table(self, 
                               combination_type: ThaiCombinationType = ThaiCombinationType.ULTIMATE_LIMIT_STATE,
                               language: str = "thai"):
