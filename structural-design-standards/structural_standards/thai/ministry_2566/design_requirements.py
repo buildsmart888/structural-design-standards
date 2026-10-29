@@ -350,54 +350,21 @@ class ThaiMinistryDesignRequirements:
                 return limit
         return None
     
-    def check_deflection_compliance(self, 
-                                  actual_deflection: float,
-                                  span_length: float,
-                                  support_type: ThaiSupportType,
-                                  load_duration: str = "immediate") -> Dict[str, Any]:
+    def check_deflection_compliance(
+            self, actual_deflection: float, span_length: float,
+            support_type: ThaiSupportType,
+            load_duration: str = "immediate") -> Dict[str, Any]:
+        """The previous generic L/300 etc ignored occupancy and damage type.
+
+        No code-compliance result can be given without the legally applicable
+        SLS check, brittle finishes, live-load portion, creep, and real member.
         """
-        Check deflection compliance with Thai standards
-        
-        Parameters:
-        -----------
-        actual_deflection : float
-            Actual deflection (mm)
-        span_length : float
-            Span length (mm)
-        support_type : ThaiSupportType
-            Support condition
-        load_duration : str
-            Load duration type
-            
-        Returns:
-        --------
-        Dict[str, Any]
-            Compliance check results
-        """
-        limit = self.get_deflection_limit(support_type, load_duration)
-        
-        if limit is None:
-            return {
-                'compliant': False,
-                'error': f"No deflection limit found for {support_type.value} - {load_duration}"
-            }
-        
-        allowable_deflection = span_length / limit.limit_ratio
-        ratio = actual_deflection / allowable_deflection if allowable_deflection > 0 else float('inf')
-        
-        return {
-            'compliant': actual_deflection <= allowable_deflection,
-            'actual_deflection_mm': actual_deflection,
-            'allowable_deflection_mm': allowable_deflection,
-            'span_length_mm': span_length,
-            'deflection_ratio': f"L/{limit.limit_ratio}",
-            'utilization_ratio': ratio,
-            'support_type': support_type.value,
-            'load_duration': load_duration,
-            'description_thai': limit.description_thai,
-            'description_english': limit.description_english
-        }
-    
+        raise NotImplementedError(
+            "Thai deflection compliance NOT VERIFIED: provisional L/ratios "
+            "are not sufficient; verify governing occupancy and actual "
+            "serviceability load case, member stiffness and limit states."
+        )
+
     def get_construction_tolerance(self, component: str, parameter: str) -> Optional[Dict[str, Any]]:
         """
         Get construction tolerance for specific component and parameter
@@ -418,66 +385,14 @@ class ThaiMinistryDesignRequirements:
             return self.construction_tolerances[component].get(parameter)
         return None
     
-    def validate_concrete_mix(self, 
-                            grade: str,
-                            w_c_ratio: float,
-                            cement_content: float,
-                            aggregate_size: float,
-                            slump: float) -> Dict[str, Any]:
-        """
-        Validate concrete mix design per Thai standards
-        
-        Parameters:
-        -----------
-        grade : str
-            Concrete grade
-        w_c_ratio : float
-            Water-cement ratio
-        cement_content : float
-            Cement content (kg/m³)
-        aggregate_size : float
-            Maximum aggregate size (mm)
-        slump : float
-            Slump value (cm)
-            
-        Returns:
-        --------
-        Dict[str, Any]
-            Validation results
-        """
-        # This would integrate with the concrete module for grade-specific validation
-        # For now, return a basic validation structure
-        
-        result = {
-            'is_valid': True,
-            'warnings': [],
-            'errors': [],
-            'recommendations': [],
-            'tested_parameters': {
-                'grade': grade,
-                'w_c_ratio': w_c_ratio,
-                'cement_content': cement_content,
-                'aggregate_size': aggregate_size,
-                'slump': slump
-            }
-        }
-        
-        # Basic validation (would be expanded with grade-specific requirements)
-        if w_c_ratio > 0.65:
-            result['warnings'].append(f"W/C ratio {w_c_ratio:.2f} อาจสูงสำหรับความทนทาน")
-            result['warnings'].append(f"W/C ratio {w_c_ratio:.2f} may be high for durability")
-        
-        if cement_content < 280:
-            result['errors'].append(f"ปริมาณปูนซีเมนต์ {cement_content} kg/m³ ต่ำกว่าขั้นต่ำ")
-            result['errors'].append(f"Cement content {cement_content} kg/m³ below minimum")
-            result['is_valid'] = False
-        
-        if slump < 5 or slump > 20:
-            result['warnings'].append(f"Slump {slump} cm อยู่นอกช่วงแนะนำ 5-20 cm")
-            result['warnings'].append(f"Slump {slump} cm outside recommended range 5-20 cm")
-        
-        return result
-    
+    def validate_concrete_mix(self, *args, **kwargs) -> Dict[str, Any]:
+        """No compliant concrete mix from a few blanket W/C and slump checks."""
+        raise NotImplementedError(
+            "Thai concrete mix acceptance requires exposure, concrete "
+            "production records, sample testing, project specification "
+            "and actual governing material standard; no generic PASS."
+        )
+
     def generate_design_summary(self, project_data: Dict[str, Any]) -> str:
         """
         Generate design requirements summary
