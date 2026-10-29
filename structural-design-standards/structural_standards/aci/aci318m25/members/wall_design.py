@@ -123,102 +123,24 @@ class ACI318M25WallDesign(MemberDesign):
         self.epsilon_cu = 0.003
         self.epsilon_ty = self.fy / self.Es
     
-    def design(self,
-               geometry: WallGeometry,
-               loads: WallLoads,
-               wall_type: WallType,
-               boundary_condition: WallBoundaryCondition = WallBoundaryCondition.PINNED_TOP_BOTTOM) -> DesignResult:
-        """Complete wall design according to ACI 318M-25"""
-        
-        result = DesignResult(
+    def design(self, *args, **kwargs) -> DesignResult:
+        """Fail closed: no complete wall design can be certified."""
+        return DesignResult(
             member_type="wall",
-            design_method="ACI 318M-25",
+            design_method="ACI 318M-25 NOT VERIFIED",
             overall_status=DesignStatus.NOT_CHECKED,
-            utilization_ratio=0.0
+            utilization_ratio=float("inf"),
+            warnings=["wall analysis, reinforcement, anchorage, "
+                      "detailing, stability and serviceability are NOT VERIFIED. "
+                      "Do not treat preliminary formulas as design checks."],
         )
-        
-        try:
-            # Validate inputs
-            self._validate_inputs(geometry, loads)
-            
-            # Design based on wall type
-            if wall_type == WallType.BEARING:
-                self._design_bearing_wall(geometry, loads, boundary_condition, result)
-            elif wall_type == WallType.SHEAR:
-                self._design_shear_wall(geometry, loads, boundary_condition, result)
-            else:
-                self._design_non_bearing_wall(geometry, loads, boundary_condition, result)
-            
-            # Perform checks
-            strength_checks = self.check_strength(geometry, loads, wall_type, boundary_condition)
-            for check in strength_checks:
-                result.add_strength_check(check)
-            
-            serviceability_checks = self.check_serviceability(geometry, loads, boundary_condition)
-            for check in serviceability_checks:
-                result.add_serviceability_check(check)
-            
-            detailing_checks = self._check_detailing_requirements(geometry, wall_type)
-            for check in detailing_checks:
-                result.add_detailing_check(check)
-            
-            # Determine overall status
-            result.utilization_ratio = result.get_critical_ratio()
-            result.overall_status = DesignStatus.PASS if result.is_adequate() else DesignStatus.FAIL
-            
-        except Exception as e:
-            result.overall_status = DesignStatus.FAIL
-            result.warnings.append(f"Design error: {str(e)}")
-        
-        return result
-    
-    def check_strength(self,
-                      geometry: WallGeometry,
-                      loads: WallLoads,
-                      wall_type: WallType,
-                      boundary_condition: WallBoundaryCondition) -> List[DesignCheck]:
-        """Check strength requirements according to ACI 318M-25"""
-        
-        checks = []
-        
-        # Axial strength check (for bearing and shear walls)
-        if wall_type in [WallType.BEARING, WallType.SHEAR]:
-            check = self._check_axial_strength(geometry, loads)
-            checks.append(check)
-        
-        # Flexural strength check
-        check = self._check_flexural_strength(geometry, loads, boundary_condition)
-        checks.append(check)
-        
-        # Shear strength check (for shear walls)
-        if wall_type == WallType.SHEAR:
-            check = self._check_shear_strength(geometry, loads)
-            checks.append(check)
-        
-        # Slenderness check
-        check = self._check_slenderness_limits(geometry, wall_type)
-        checks.append(check)
-        
-        return checks
-    
-    def check_serviceability(self,
-                           geometry: WallGeometry,
-                           loads: WallLoads,
-                           boundary_condition: WallBoundaryCondition) -> List[DesignCheck]:
-        """Check serviceability requirements"""
-        
-        checks = []
-        
-        # Deflection check
-        check = self._check_deflection_limits(geometry, loads, boundary_condition)
-        checks.append(check)
-        
-        # Crack control check
-        check = self._check_crack_control(geometry, loads)
-        checks.append(check)
-        
-        return checks
-    
+
+    def check_strength(self, *args, **kwargs) -> List[DesignCheck]:
+        raise NotImplementedError("wall strength model NOT VERIFIED")
+
+    def check_serviceability(self, *args, **kwargs) -> List[DesignCheck]:
+        raise NotImplementedError("wall serviceability model NOT VERIFIED")
+
     def _design_bearing_wall(self, geometry, loads, boundary_condition, result):
         """Design bearing wall for axial load and out-of-plane moment"""
         
