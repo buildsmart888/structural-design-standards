@@ -237,176 +237,41 @@ class ACI318M25FootingDesign(MemberDesign):
                              soil: SoilProperties) -> List[DesignCheck]:
         return [self.check_service_bearing_pressure(geometry, loads, soil)]
 
-    def _size_footing(self, loads: ColumnLoads, soil: SoilProperties, footing_type: FootingType) -> FootingGeometry:
-        """Size footing based on bearing pressure"""
-        
-        P_service = loads.total_axial  # kN
-        Mx_service = loads.total_moment_x  # kN⋅m
-        My_service = loads.total_moment_y  # kN⋅m
-        
-        # Estimate footing weight
-        footing_weight_estimate = 0.1 * P_service  # kN
-        total_load = P_service + footing_weight_estimate
-        
-        # Required area
-        qa = soil.design_bearing_pressure  # kPa
-        A_required = total_load / qa  # m²
-        A_required *= 1000000  # Convert to mm²
-        
-        # For square footing initially
-        side_length = math.sqrt(A_required)  # mm
-        
-        # Check for moments and adjust if needed
-        if abs(Mx_service) > 0.01 or abs(My_service) > 0.01:
-            side_length *= 1.2
-        
-        # Minimum dimensions
-        min_dimension = 600  # mm
-        side_length = max(side_length, min_dimension)
-        
-        # Round up to nearest 50mm
-        side_length = math.ceil(side_length / 50) * 50
-        
-        # Determine thickness
-        thickness = max(150, side_length / 10)  # mm
-        thickness = math.ceil(thickness / 25) * 25
-        
-        return FootingGeometry(
-            length=side_length,
-            width=side_length,
-            thickness=thickness
+    def _size_footing(self, *args, **kwargs):
+        raise NotImplementedError(
+            "footing_design.py:_size_footing NOT VERIFIED; no engineering approval from legacy formula"
         )
-    
-    def _design_reinforcement(self, geometry: FootingGeometry, loads: ColumnLoads, 
-                            soil: SoilProperties, result: DesignResult) -> None:
-        """Design footing reinforcement"""
-        
-        # Calculate design moments
-        Mu_x, Mu_y = self._calculate_design_moments(geometry, loads, soil)
-        
-        # Design reinforcement in both directions
-        As_x = self._calculate_required_steel_area(geometry, Mu_x, geometry.effective_depth_length)
-        As_y = self._calculate_required_steel_area(geometry, Mu_y, geometry.effective_depth_width)
-        
-        # Minimum reinforcement
-        As_min_x = self._minimum_reinforcement_area(geometry.width, geometry.effective_depth_length)
-        As_min_y = self._minimum_reinforcement_area(geometry.length, geometry.effective_depth_width)
-        
-        # Required areas
-        As_req_x = max(As_x, As_min_x)
-        As_req_y = max(As_y, As_min_y)
-        
-        # Calculate spacing
-        bar_area = math.pi * (12/2)**2  # Assume #4 bars (12mm diameter)
-        spacing_x = (bar_area * geometry.width) / As_req_x
-        spacing_y = (bar_area * geometry.length) / As_req_y
-        
-        # Maximum spacing limits
-        max_spacing = min(3 * geometry.thickness, 450)  # mm
-        spacing_x = min(spacing_x, max_spacing)
-        spacing_y = min(spacing_y, max_spacing)
-        
-        # Store reinforcement design
-        result.required_reinforcement.update({
-            'steel_area_x': As_req_x,
-            'steel_area_y': As_req_y,
-            'minimum_steel_x': As_min_x,
-            'minimum_steel_y': As_min_y,
-            'spacing_x': spacing_x,
-            'spacing_y': spacing_y,
-            'bar_size_recommended': 'DB12',
-            'design_moment_x': Mu_x,
-            'design_moment_y': Mu_y
-        })
-        
-        result.design_forces = {
-            'design_moment_x': Mu_x,
-            'design_moment_y': Mu_y,
-            'bearing_pressure': self._calculate_bearing_pressure(geometry, loads, soil)
-        }
-    
-    def _calculate_design_moments(self, geometry: FootingGeometry, loads: ColumnLoads, 
-                                soil: SoilProperties) -> Tuple[float, float]:
-        """Calculate design moments in both directions"""
-        
-        qu = self._calculate_ultimate_bearing_pressure(geometry, loads, soil)
-        
-        # Critical sections for moment (at face of column)
-        column_size = 400  # mm (assumed)
-        
-        # Distance from face of column to edge of footing
-        cantilever_x = (geometry.length - column_size) / 2
-        cantilever_y = (geometry.width - column_size) / 2
-        
-        # Moments per unit width
-        Mu_x = qu * cantilever_x**2 / 2 / 1000000  # kN⋅m/m
-        Mu_y = qu * cantilever_y**2 / 2 / 1000000  # kN⋅m/m
-        
-        # Total moments
-        Mu_x_total = Mu_x * geometry.width / 1000  # kN⋅m
-        Mu_y_total = Mu_y * geometry.length / 1000  # kN⋅m
-        
-        return Mu_x_total, Mu_y_total
-    
-    def _calculate_required_steel_area(self, geometry: FootingGeometry, 
-                                     moment: float, effective_depth: float) -> float:
-        """Calculate required steel area for flexure"""
-        
-        Mu = moment * 1e6  # kN⋅m to N⋅mm
-        b = 1000  # mm (per meter width)
-        d = effective_depth  # mm
-        
-        # Required moment strength
-        Mn_required = Mu / self.phi_flexure
-        
-        # Solve for required steel area (simplified)
-        a_coeff = 0.5 * self.fy / (0.85 * self.fc * b)
-        b_coeff = -self.fy * d
-        c_coeff = Mn_required
-        
-        discriminant = b_coeff**2 - 4 * a_coeff * c_coeff
-        
-        if discriminant < 0:
-            raise ValueError('Bending demand exceeds singly reinforced capacity')
-        
-        As = (-b_coeff - math.sqrt(discriminant)) / (2 * a_coeff)
-        
-        return max(As, 0.0)
-    
-    def _minimum_reinforcement_area(self, width: float, effective_depth: float) -> float:
-        """Calculate minimum reinforcement area"""
-        
-        rho_min = max(0.0018, 0.25 * math.sqrt(self.fc) / self.fy)
-        As_min = rho_min * width * effective_depth
-        
-        return As_min
-    
-    def _calculate_bearing_pressure(self, geometry: FootingGeometry, loads: ColumnLoads, 
-                                  soil: SoilProperties) -> float:
-        """Calculate bearing pressure under service loads"""
-        
-        P = loads.total_axial
-        footing_weight = geometry.volume * self.concrete_unit_weight / 1e9
-        P_total = P + footing_weight
-        
-        A = geometry.area / 1e6  # m²
-        q_avg = P_total / A
-        
-        return q_avg
-    
-    def _calculate_ultimate_bearing_pressure(self, geometry: FootingGeometry, loads: ColumnLoads, 
-                                           soil: SoilProperties) -> float:
-        """Calculate ultimate bearing pressure for design"""
-        
-        Pu = 1.2 * loads.axial_dead + 1.6 * loads.axial_live
-        footing_weight = geometry.volume * self.concrete_unit_weight / 1e9 * 1.2
-        Pu_total = Pu + footing_weight
-        
-        A = geometry.area / 1e6
-        qu = Pu_total / A
-        
-        return qu
-    
+
+    def _design_reinforcement(self, *args, **kwargs):
+        raise NotImplementedError(
+            "footing_design.py:_design_reinforcement NOT VERIFIED; no engineering approval from legacy formula"
+        )
+
+    def _calculate_design_moments(self, *args, **kwargs):
+        raise NotImplementedError(
+            "footing_design.py:_calculate_design_moments NOT VERIFIED; no engineering approval from legacy formula"
+        )
+
+    def _calculate_required_steel_area(self, *args, **kwargs):
+        raise NotImplementedError(
+            "footing_design.py:_calculate_required_steel_area NOT VERIFIED; no engineering approval from legacy formula"
+        )
+
+    def _minimum_reinforcement_area(self, *args, **kwargs):
+        raise NotImplementedError(
+            "footing_design.py:_minimum_reinforcement_area NOT VERIFIED; no engineering approval from legacy formula"
+        )
+
+    def _calculate_bearing_pressure(self, *args, **kwargs):
+        raise NotImplementedError(
+            "footing_design.py:_calculate_bearing_pressure NOT VERIFIED; no engineering approval from legacy formula"
+        )
+
+    def _calculate_ultimate_bearing_pressure(self, *args, **kwargs):
+        raise NotImplementedError(
+            "footing_design.py:_calculate_ultimate_bearing_pressure NOT VERIFIED; no engineering approval from legacy formula"
+        )
+
     def _check_bearing_pressure(self, geometry, loads, soil):
         return self.check_service_bearing_pressure(geometry, loads, soil)
 
@@ -431,47 +296,9 @@ class ACI318M25FootingDesign(MemberDesign):
     def _check_stability(self, *args, **kwargs):
         raise NotImplementedError("_check_stability: calculation NOT VERIFIED")
 
-    def _check_detailing_requirements(self, geometry: FootingGeometry) -> List[DesignCheck]:
-        """Check detailing requirements"""
-        
-        checks = []
-        
-        # Minimum thickness check
-        min_thickness = 150  # mm
-        ratio = min_thickness / geometry.thickness
-        status = DesignStatus.PASS if ratio <= 1.0 else DesignStatus.FAIL
-        
-        thickness_check = DesignCheck(
-            name="Minimum Thickness",
-            status=status,
-            value=geometry.thickness,
-            limit=min_thickness,
-            ratio=ratio,
-            units="mm",
-            description=f"Minimum footing thickness requirement",
-            code_reference="ACI 318M-25 Section 13.2"
-        )
-        checks.append(thickness_check)
-        
-        # Cover requirement check
-        min_cover = 75.0  # mm for footings
-        ratio = min_cover / geometry.cover_bottom
-        status = DesignStatus.PASS if ratio <= 1.0 else DesignStatus.FAIL
-        
-        cover_check = DesignCheck(
-            name="Concrete Cover",
-            status=status,
-            value=geometry.cover_bottom,
-            limit=min_cover,
-            ratio=ratio,
-            units="mm",
-            description=f"Minimum cover requirement for footings",
-            code_reference="ACI 318M-25 Section 20.5"
-        )
-        checks.append(cover_check)
-        
-        return checks
-    
+    def _check_detailing_requirements(self, *args, **kwargs):
+        raise NotImplementedError("Footing detailing requires actual bar positions and code provisions")
+
     def _validate_inputs(self, loads: ColumnLoads, soil: SoilProperties) -> None:
         """Validate input parameters"""
         
