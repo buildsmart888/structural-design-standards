@@ -24,11 +24,11 @@ from ....utils.validation import validate_positive, validate_range
 
 class ThaiConcreteGrade(Enum):
     """Thai concrete grade designations"""
-    FC180 = "Fc180"  # 18.0 MPa (180 ksc)
-    FC210 = "Fc210"  # 21.0 MPa (210 ksc) 
-    FC240 = "Fc240"  # 24.0 MPa (240 ksc)
-    FC280 = "Fc280"  # 28.0 MPa (280 ksc)
-    FC350 = "Fc350"  # 35.0 MPa (350 ksc)
+    FC180 = "Fc180"  # 17.65197 MPa (180 ksc)
+    FC210 = "Fc210"  # 20.593965 MPa (210 ksc) 
+    FC240 = "Fc240"  # 23.53596 MPa (240 ksc)
+    FC280 = "Fc280"  # 27.45862 MPa (280 ksc)
+    FC350 = "Fc350"  # 34.323275 MPa (350 ksc)
 
 
 @dataclass
@@ -56,7 +56,7 @@ class ThaiConcrete(ConcreteMaterial):
     THAI_CONCRETE_GRADES = {
         ThaiConcreteGrade.FC180: ThaiConcreteProperties(
             grade="Fc180",
-            fc_mpa=18.0,
+            fc_mpa=17.65197,  # exact 180 kgf/cm2 to MPa
             fc_ksc=180.0,
             min_cement_content=280,
             max_water_cement_ratio=0.65,
@@ -68,7 +68,7 @@ class ThaiConcrete(ConcreteMaterial):
         
         ThaiConcreteGrade.FC210: ThaiConcreteProperties(
             grade="Fc210", 
-            fc_mpa=21.0,
+            fc_mpa=20.593965,  # exact 210 kgf/cm2 to MPa
             fc_ksc=210.0,
             min_cement_content=300,
             max_water_cement_ratio=0.60,
@@ -80,7 +80,7 @@ class ThaiConcrete(ConcreteMaterial):
         
         ThaiConcreteGrade.FC240: ThaiConcreteProperties(
             grade="Fc240",
-            fc_mpa=24.0,
+            fc_mpa=23.53596,  # exact 240 kgf/cm2 to MPa
             fc_ksc=240.0,
             min_cement_content=320,
             max_water_cement_ratio=0.55,
@@ -92,7 +92,7 @@ class ThaiConcrete(ConcreteMaterial):
         
         ThaiConcreteGrade.FC280: ThaiConcreteProperties(
             grade="Fc280",
-            fc_mpa=28.0,
+            fc_mpa=27.45862,  # exact 280 kgf/cm2 to MPa
             fc_ksc=280.0,
             min_cement_content=350,
             max_water_cement_ratio=0.50,
@@ -104,7 +104,7 @@ class ThaiConcrete(ConcreteMaterial):
         
         ThaiConcreteGrade.FC350: ThaiConcreteProperties(
             grade="Fc350",
-            fc_mpa=35.0,
+            fc_mpa=34.323275,  # exact 350 kgf/cm2 to MPa
             fc_ksc=350.0,
             min_cement_content=400,
             max_water_cement_ratio=0.45,
@@ -184,18 +184,14 @@ class ThaiConcrete(ConcreteMaterial):
         raise ValueError(f"Invalid Thai concrete grade: {grade}")
     
     def _determine_grade_from_strength(self, fc: float) -> str:
-        """Determine Thai grade from strength"""
-        for grade_enum, props in self.THAI_CONCRETE_GRADES.items():
-            if abs(fc - props.fc_mpa) < 0.5:  # Allow small tolerance
+        """Do NOT mislabel a custom MPa strength as the nearest ksc grade."""
+        if not math.isfinite(fc) or fc <= 0:
+            raise ValueError("fc_prime must be finite positive MPa")
+        for props in self.THAI_CONCRETE_GRADES.values():
+            if math.isclose(fc, props.fc_mpa, rel_tol=0, abs_tol=1e-6):
                 return props.grade
-        
-        # If no exact match, find closest
-        closest_grade = min(
-            self.THAI_CONCRETE_GRADES.values(),
-            key=lambda p: abs(p.fc_mpa - fc)
-        )
-        return closest_grade.grade
-    
+        return "CUSTOM"
+
     def _get_grade_properties(self) -> Optional[ThaiConcreteProperties]:
         """Get properties for current grade"""
         for grade_enum, props in self.THAI_CONCRETE_GRADES.items():
@@ -284,27 +280,13 @@ class ThaiConcrete(ConcreteMaterial):
         return self.fc_prime * 1000 / 98.0665  # MPa -> ksc; 1 ksc = 1 kgf/cm2 = 0.0980665 MPa
     
     def get_mix_requirements(self) -> Dict[str, Any]:
-        """
-        Get concrete mix requirements per Thai standards
-        
-        Returns:
-        --------
-        Dict[str, Any]
-            Mix design requirements
-        """
-        if not self.grade_properties:
-            return {}
-        
-        props = self.grade_properties
-        return {
-            'min_cement_content_kg_m3': props.min_cement_content,
-            'max_water_cement_ratio': props.max_water_cement_ratio,
-            'slump_range_cm': (props.min_slump, props.max_slump),
-            'min_curing_days': 28,
-            'required_compressive_strength_28_days_mpa': props.fc_mpa,
-            'required_compressive_strength_28_days_ksc': props.fc_ksc
-        }
-    
+        """Generic minimum cement/slump/w:c per grade is NOT a code design."""
+        raise NotImplementedError(
+            "Thai concrete mix requirements NOT VERIFIED: need exposure, "
+            "durability class, cement type, slump, curing and governing "
+            "material/product standards; grade alone is insufficient"
+        )
+
     def get_design_properties(self) -> Dict[str, float]:
         """
         Get comprehensive design properties for Thai concrete
@@ -332,26 +314,13 @@ class ThaiConcrete(ConcreteMaterial):
         
         return {**base_props, **thai_props}
     
-    def get_strength_reduction_factors(self) -> Dict[str, float]:
-        """
-        Get strength reduction factors per Thai standards
-        
-        Based on Thai adoption of modified ACI factors
-        
-        Returns:
-        --------
-        Dict[str, float]
-            φ factors for different failure modes
-        """
-        return {
-            'flexure_tension_controlled': 0.90,      # งานโค้งควบคุมด้วยแรงดึง
-            'flexure_compression_controlled': 0.65,   # งานโค้งควบคุมด้วยแรงอัด
-            'shear_and_torsion': 0.75,               # แรงเฉือนและแรงบิด
-            'axial_compression_tied': 0.65,          # แรงอัดตามแนวแกนด้วยเหล็กปลอก
-            'axial_compression_spiral': 0.70,        # แรงอัดตามแนวแกนด้วยเหล็กเกลียว
-            'bearing_on_concrete': 0.65,             # แรงรองรับบนคอนกรีต
-        }
-    
+    def get_strength_reduction_factors(
+            self, good_quality_control: bool = False) -> Dict[str, float]:
+        """Use same Thai Clause 8 quality class as all load-combo modules."""
+        from ..load_combinations import ThaiMinistryLoadCombinations
+        return ThaiMinistryLoadCombinations(
+            good_quality_control=good_quality_control).phi_factors.copy()
+
     def __str__(self) -> str:
         """String representation"""
         if self.grade_properties:
@@ -380,17 +349,12 @@ class ThaiConcrete(ConcreteMaterial):
     
     @staticmethod
     def _parse_grade_static(grade: str) -> ThaiConcreteGrade:
-        """Static version of grade parsing"""
-        grade_upper = grade.upper()
-        if grade_upper.startswith('FC'):
-            grade_upper = grade_upper.replace('FC', 'Fc')
-        
+        """Case-insensitive, no rewrite to mixed case that breaks equality."""
         for thai_grade in ThaiConcreteGrade:
-            if thai_grade.value.upper() == grade_upper:
+            if thai_grade.value.upper() == grade.upper():
                 return thai_grade
-        
         raise ValueError(f"Invalid Thai concrete grade: {grade}")
-    
+
     @classmethod
     def create_standard_concrete(cls, grade: str) -> 'ThaiConcrete':
         """
@@ -411,23 +375,23 @@ class ThaiConcrete(ConcreteMaterial):
 
 # Convenience functions for common grades
 def create_fc180() -> ThaiConcrete:
-    """Create Fc180 concrete (18.0 MPa)"""
+    """Create Fc180 concrete (17.65197 MPa)"""
     return ThaiConcrete(grade="Fc180")
 
 def create_fc210() -> ThaiConcrete:
-    """Create Fc210 concrete (21.0 MPa) - Most common grade"""
+    """Create Fc210 concrete (20.593965 MPa) - Most common grade"""
     return ThaiConcrete(grade="Fc210")
 
 def create_fc240() -> ThaiConcrete:
-    """Create Fc240 concrete (24.0 MPa)"""
+    """Create Fc240 concrete (23.53596 MPa)"""
     return ThaiConcrete(grade="Fc240")
 
 def create_fc280() -> ThaiConcrete:
-    """Create Fc280 concrete (28.0 MPa) - High strength"""
+    """Create Fc280 concrete (27.45862 MPa) - High strength"""
     return ThaiConcrete(grade="Fc280")
 
 def create_fc350() -> ThaiConcrete:
-    """Create Fc350 concrete (35.0 MPa) - Premium grade"""
+    """Create Fc350 concrete (34.323275 MPa) - Premium grade"""
     return ThaiConcrete(grade="Fc350")
 
 
