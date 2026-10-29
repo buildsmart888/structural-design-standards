@@ -154,111 +154,89 @@ class ACI318M25FootingDesign(MemberDesign):
         # Constants
         self.concrete_unit_weight = 24.0  # kN/m³
     
-    def design(self,
-               loads: ColumnLoads,
-               soil: SoilProperties,
+    def design(self, loads: ColumnLoads, soil: SoilProperties,
                footing_type: FootingType = FootingType.ISOLATED,
                target_geometry: Optional[FootingGeometry] = None) -> DesignResult:
-        """Complete footing design according to ACI 318M-25"""
-        
+        """Fail-closed footprint; NEVER certify structural footing with guessed inputs."""
         result = DesignResult(
-            member_type="footing",
-            design_method="ACI 318M-25",
-            overall_status=DesignStatus.NOT_CHECKED,
-            utilization_ratio=0.0
+            member_type="footing", design_method="Partial service soil bearing ONLY",
+            overall_status=DesignStatus.NOT_CHECKED, utilization_ratio=float("inf"),
         )
-        
+        result.warnings.append(
+            "NOT VERIFIED: full footing flexure, punching, one-way shear, settlement, "
+            "stability and detailing require column dimensions, actual bar layout, "
+            "factored load envelopes and geotechnical measurements."
+        )
+        if footing_type != FootingType.ISOLATED or target_geometry is None:
+            result.warnings.append(
+                "Provide explicit rectangular isolated footing geometry; auto-size disabled."
+            )
+            return result
         try:
-            # Validate inputs
-            self._validate_inputs(loads, soil)
-            
-            # Size footing if geometry not provided
-            if target_geometry is None:
-                geometry = self._size_footing(loads, soil, footing_type)
-            else:
-                geometry = target_geometry
-            
-            # Design reinforcement
-            self._design_reinforcement(geometry, loads, soil, result)
-            
-            # Perform checks
-            strength_checks = self.check_strength(geometry, loads, soil)
-            for check in strength_checks:
-                result.add_strength_check(check)
-            
-            serviceability_checks = self.check_serviceability(geometry, loads, soil)
-            for check in serviceability_checks:
-                result.add_serviceability_check(check)
-            
-            detailing_checks = self._check_detailing_requirements(geometry)
-            for check in detailing_checks:
-                result.add_detailing_check(check)
-            
-            # Store geometry in result
-            result.required_reinforcement['geometry'] = {
-                'length': geometry.length,
-                'width': geometry.width,
-                'thickness': geometry.thickness,
-                'area': geometry.area,
-                'volume': geometry.volume
-            }
-            
-            # Determine overall status
-            result.utilization_ratio = result.get_critical_ratio()
-            result.overall_status = DesignStatus.PASS if result.is_adequate() else DesignStatus.FAIL
-            
-        except Exception as e:
-            result.overall_status = DesignStatus.FAIL
-            result.warnings.append(f"Design error: {str(e)}")
-        
+            check = self.check_service_bearing_pressure(target_geometry, loads, soil)
+            result.serviceability_checks.append(check)
+            result.utilization_ratio = check.ratio
+            result.design_forces["q_service_max_kPa"] = check.value
+            result.design_capacities["q_allowable_kPa"] = check.limit
+        except (ValueError, NotImplementedError) as error:
+            result.warnings.append(str(error))
         return result
-    
-    def check_strength(self,
-                      geometry: FootingGeometry,
-                      loads: ColumnLoads,
-                      soil: SoilProperties) -> List[DesignCheck]:
-        """Check strength requirements according to ACI 318M-25"""
-        
-        checks = []
-        
-        # Bearing pressure check
-        check = self._check_bearing_pressure(geometry, loads, soil)
-        checks.append(check)
-        
-        # Flexural strength check
-        check_x = self._check_flexural_strength_x(geometry, loads, soil)
-        check_y = self._check_flexural_strength_y(geometry, loads, soil)
-        checks.extend([check_x, check_y])
-        
-        # One-way shear check
-        check_x = self._check_one_way_shear_x(geometry, loads, soil)
-        check_y = self._check_one_way_shear_y(geometry, loads, soil)
-        checks.extend([check_x, check_y])
-        
-        # Two-way shear (punching) check
-        check = self._check_punching_shear(geometry, loads, soil)
-        checks.append(check)
-        
-        return checks
-    
-    def check_serviceability(self,
-                           geometry: FootingGeometry,
-                           loads: ColumnLoads,
-                           soil: SoilProperties) -> List[DesignCheck]:
-        """Check serviceability requirements"""
-        
-        checks = []
-        
-        # Settlement check (simplified)
-        check = self._check_settlement(geometry, loads, soil)
-        checks.append(check)
-        
-        # Stability check
-        check = self._check_stability(geometry, loads, soil)
-        checks.append(check)
-        
-        return checks
-    
+
+    def check_service_bearing_pressure(self, geometry: FootingGeometry,
+                                       loads: ColumnLoads, soil: SoilProperties) -> DesignCheck:
+        """Full-contact rigid footing elastic contact, service loads only.
+
+        qmax/min = P/A +/- 6Mx/(L B^2) +/- 6My/(B L^2);
+        L=X, B=Y (m), Mx about X; My about Y (kNm). Uniform base pressure
+        and allowable capacity from a real geotechnical report, NOT ACI.
+        """
+        if soil.condition != SoilCondition.ALLOWABLE_STRESS:
+            raise NotImplementedError(
+                "Cannot divide ultimate soil bearing by arbitrary FS=3; "
+                "supply geotechnical allowable bearing pressure."
+            )
+        for name, value in (
+            ("length", geometry.length), ("width", geometry.width),
+            ("thickness", geometry.thickness),
+            ("allowable bearing", soil.bearing_capacity)
+        ):
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be positive and finite")
+        L, B, H = (geometry.length / 1000, geometry.width / 1000,
+                   geometry.thickness / 1000)
+        P = loads.total_axial + L*B*H*self.concrete_unit_weight
+        Mx, My = loads.total_moment_x, loads.total_moment_y
+        if any(not math.isfinite(x) for x in (P, Mx, My)) or P <= 0:
+            raise ValueError("Total service vertical force must be positive finite")
+        avg = P/(L*B)
+        dx = 6*abs(Mx)/(L*B**2)
+        dy = 6*abs(My)/(B*L**2)
+        qmin = avg-dx-dy
+        if qmin < -1e-9:
+            raise NotImplementedError(
+                "Partial soil contact/uplift: elastic full-contact q formula not valid."
+            )
+        qmax = avg+dx+dy
+        ratio = qmax/soil.bearing_capacity
+        return DesignCheck(
+            name="Service soil bearing (full contact)",
+            status=DesignStatus.PASS if ratio <= 1 else DesignStatus.FAIL,
+            value=qmax, limit=soil.bearing_capacity, ratio=ratio, units="kPa",
+            description=f"qmin={max(qmin,0):.3f}kPa; settlement NOT VERIFIED",
+            code_reference="Geotechnical elastic full-contact bearing; not structural ACI check",
+        )
+
+    def check_strength(self, geometry: FootingGeometry, loads: ColumnLoads,
+                       soil: SoilProperties) -> List[DesignCheck]:
+        raise NotImplementedError(
+            "Footing structural ACI checks require explicit column size, layout, "
+            "governing factored load combinations and critical sections."
+        )
+
+    def check_serviceability(self, geometry: FootingGeometry, loads: ColumnLoads,
+                             soil: SoilProperties) -> List[DesignCheck]:
+        return [self.check_service_bearing_pressure(geometry, loads, soil)]
+
     def _size_footing(self, loads: ColumnLoads, soil: SoilProperties, footing_type: FootingType) -> FootingGeometry:
         """Size footing based on bearing pressure"""
         
@@ -389,7 +367,7 @@ class ACI318M25FootingDesign(MemberDesign):
         discriminant = b_coeff**2 - 4 * a_coeff * c_coeff
         
         if discriminant < 0:
-            return 0.0
+            raise ValueError('Bending demand exceeds singly reinforced capacity')
         
         As = (-b_coeff - math.sqrt(discriminant)) / (2 * a_coeff)
         
@@ -429,231 +407,30 @@ class ACI318M25FootingDesign(MemberDesign):
         
         return qu
     
-    def _check_bearing_pressure(self, geometry: FootingGeometry, loads: ColumnLoads, 
-                              soil: SoilProperties) -> DesignCheck:
-        """Check bearing pressure against soil capacity"""
-        
-        q_actual = self._calculate_bearing_pressure(geometry, loads, soil)
-        q_allowable = soil.design_bearing_pressure
-        
-        ratio = q_actual / q_allowable
-        status = DesignStatus.PASS if ratio <= 1.0 else DesignStatus.FAIL
-        
-        return DesignCheck(
-            name="Bearing Pressure",
-            status=status,
-            value=q_actual,
-            limit=q_allowable,
-            ratio=ratio,
-            units="kPa",
-            description=f"Soil bearing pressure check",
-            code_reference="ACI 318M-25 Section 13.2"
-        )
-    
-    def _check_flexural_strength_x(self, geometry: FootingGeometry, loads: ColumnLoads, 
-                                 soil: SoilProperties) -> DesignCheck:
-        """Check flexural strength in x-direction"""
-        
-        Mu_x, _ = self._calculate_design_moments(geometry, loads, soil)
-        
-        # Simplified capacity check
-        As_min = self._minimum_reinforcement_area(geometry.width, geometry.effective_depth_length)
-        d = geometry.effective_depth_length
-        
-        a = As_min * self.fy / (0.85 * self.fc * geometry.width)
-        Mn = As_min * self.fy * (d - a/2) / 1e6
-        phi_Mn = self.phi_flexure * Mn
-        
-        ratio = Mu_x / phi_Mn if phi_Mn > 0 else float('inf')
-        status = DesignStatus.PASS if ratio <= 1.0 else DesignStatus.FAIL
-        
-        return DesignCheck(
-            name="Flexural Strength X",
-            status=status,
-            value=Mu_x,
-            limit=phi_Mn,
-            ratio=ratio,
-            units="kN⋅m",
-            description=f"Flexural strength in x-direction",
-            code_reference="ACI 318M-25 Section 13.3"
-        )
-    
-    def _check_flexural_strength_y(self, geometry: FootingGeometry, loads: ColumnLoads, 
-                                 soil: SoilProperties) -> DesignCheck:
-        """Check flexural strength in y-direction"""
-        
-        _, Mu_y = self._calculate_design_moments(geometry, loads, soil)
-        
-        As_min = self._minimum_reinforcement_area(geometry.length, geometry.effective_depth_width)
-        d = geometry.effective_depth_width
-        
-        a = As_min * self.fy / (0.85 * self.fc * geometry.length)
-        Mn = As_min * self.fy * (d - a/2) / 1e6
-        phi_Mn = self.phi_flexure * Mn
-        
-        ratio = Mu_y / phi_Mn if phi_Mn > 0 else float('inf')
-        status = DesignStatus.PASS if ratio <= 1.0 else DesignStatus.FAIL
-        
-        return DesignCheck(
-            name="Flexural Strength Y",
-            status=status,
-            value=Mu_y,
-            limit=phi_Mn,
-            ratio=ratio,
-            units="kN⋅m",
-            description=f"Flexural strength in y-direction",
-            code_reference="ACI 318M-25 Section 13.3"
-        )
-    
-    def _check_one_way_shear_x(self, geometry: FootingGeometry, loads: ColumnLoads, 
-                             soil: SoilProperties) -> DesignCheck:
-        """Check one-way shear in x-direction"""
-        
-        qu = self._calculate_ultimate_bearing_pressure(geometry, loads, soil)
-        
-        column_size = 400  # mm
-        d = geometry.effective_depth_length
-        critical_distance = column_size/2 + d
-        
-        cantilever = (geometry.length - critical_distance * 2) / 2
-        Vu = qu * cantilever * geometry.width / 1e6  # kN (qu in kN/m², dims in mm)
-        
-        Vc = 0.17 * math.sqrt(self.fc) * geometry.width * d / 1000
-        phi_Vc = self.phi_shear * Vc
-        
-        ratio = Vu / phi_Vc if phi_Vc > 0 else float('inf')
-        status = DesignStatus.PASS if ratio <= 1.0 else DesignStatus.FAIL
-        
-        return DesignCheck(
-            name="One-Way Shear X",
-            status=status,
-            value=Vu,
-            limit=phi_Vc,
-            ratio=ratio,
-            units="kN",
-            description=f"One-way shear in x-direction",
-            code_reference="ACI 318M-25 Section 13.4"
-        )
-    
-    def _check_one_way_shear_y(self, geometry: FootingGeometry, loads: ColumnLoads, 
-                             soil: SoilProperties) -> DesignCheck:
-        """Check one-way shear in y-direction"""
-        
-        qu = self._calculate_ultimate_bearing_pressure(geometry, loads, soil)
-        
-        column_size = 400  # mm
-        d = geometry.effective_depth_width
-        critical_distance = column_size/2 + d
-        
-        cantilever = (geometry.width - critical_distance * 2) / 2
-        Vu = qu * cantilever * geometry.length / 1e6  # kN
-        
-        Vc = 0.17 * math.sqrt(self.fc) * geometry.length * d / 1000
-        phi_Vc = self.phi_shear * Vc
-        
-        ratio = Vu / phi_Vc if phi_Vc > 0 else float('inf')
-        status = DesignStatus.PASS if ratio <= 1.0 else DesignStatus.FAIL
-        
-        return DesignCheck(
-            name="One-Way Shear Y",
-            status=status,
-            value=Vu,
-            limit=phi_Vc,
-            ratio=ratio,
-            units="kN",
-            description=f"One-way shear in y-direction",
-            code_reference="ACI 318M-25 Section 13.4"
-        )
-    
-    def _check_punching_shear(self, geometry: FootingGeometry, loads: ColumnLoads, 
-                            soil: SoilProperties) -> DesignCheck:
-        """Check two-way (punching) shear"""
-        
-        qu = self._calculate_ultimate_bearing_pressure(geometry, loads, soil)
-        Pu = loads.total_axial * 1.4
-        
-        column_size = 400  # mm
-        d = min(geometry.effective_depth_length, geometry.effective_depth_width)
-        
-        bo = 4 * (column_size + d)
-        
-        critical_area = (column_size + d)**2
-        upward_force = qu * (geometry.area - critical_area) / 1e6  # kN
-        Vu = min(upward_force, Pu)
-        
-        Vc = 0.33 * math.sqrt(self.fc) * bo * d / 1000
-        phi_Vc = self.phi_shear * Vc
-        
-        ratio = Vu / phi_Vc if phi_Vc > 0 else float('inf')
-        status = DesignStatus.PASS if ratio <= 1.0 else DesignStatus.FAIL
-        
-        return DesignCheck(
-            name="Punching Shear",
-            status=status,
-            value=Vu,
-            limit=phi_Vc,
-            ratio=ratio,
-            units="kN",
-            description=f"Two-way punching shear",
-            code_reference="ACI 318M-25 Section 13.5"
-        )
-    
-    def _check_settlement(self, geometry: FootingGeometry, loads: ColumnLoads, 
-                        soil: SoilProperties) -> DesignCheck:
-        """Check settlement (simplified estimate)"""
-        
-        q = self._calculate_bearing_pressure(geometry, loads, soil)
-        B = min(geometry.length, geometry.width) / 1000
-        
-        # Very simplified settlement estimate
-        settlement = q * B / (soil.bearing_capacity * 10)
-        settlement_limit = 25.0  # mm
-        
-        ratio = settlement / settlement_limit
-        status = DesignStatus.PASS if ratio <= 1.0 else DesignStatus.WARNING
-        
-        return DesignCheck(
-            name="Settlement Check",
-            status=status,
-            value=settlement,
-            limit=settlement_limit,
-            ratio=ratio,
-            units="mm",
-            description=f"Estimated settlement (simplified)",
-            code_reference="Geotechnical considerations"
-        )
-    
-    def _check_stability(self, geometry: FootingGeometry, loads: ColumnLoads, 
-                       soil: SoilProperties) -> DesignCheck:
-        """Check overturning stability"""
-        
-        M_overturning = max(abs(loads.total_moment_x), abs(loads.total_moment_y))
-        
-        # Resisting moment
-        footing_weight = geometry.volume * self.concrete_unit_weight / 1e9
-        total_weight = loads.total_axial + footing_weight
-        
-        lever_arm = min(geometry.length, geometry.width) / 2000  # m
-        M_resisting = total_weight * lever_arm
-        
-        # Safety factor
-        safety_factor = M_resisting / max(M_overturning, 0.01)
-        safety_required = 2.0
-        
-        ratio = safety_required / safety_factor
-        status = DesignStatus.PASS if ratio <= 1.0 else DesignStatus.FAIL
-        
-        return DesignCheck(
-            name="Overturning Stability",
-            status=status,
-            value=safety_factor,
-            limit=safety_required,
-            ratio=ratio,
-            units="",
-            description=f"Overturning stability check",
-            code_reference="Foundation engineering principles"
-        )
-    
+    def _check_bearing_pressure(self, geometry, loads, soil):
+        return self.check_service_bearing_pressure(geometry, loads, soil)
+
+    def _check_flexural_strength_x(self, *args, **kwargs):
+        raise NotImplementedError("_check_flexural_strength_x: calculation NOT VERIFIED")
+
+    def _check_flexural_strength_y(self, *args, **kwargs):
+        raise NotImplementedError("_check_flexural_strength_y: calculation NOT VERIFIED")
+
+    def _check_one_way_shear_x(self, *args, **kwargs):
+        raise NotImplementedError("_check_one_way_shear_x: calculation NOT VERIFIED")
+
+    def _check_one_way_shear_y(self, *args, **kwargs):
+        raise NotImplementedError("_check_one_way_shear_y: calculation NOT VERIFIED")
+
+    def _check_punching_shear(self, *args, **kwargs):
+        raise NotImplementedError("_check_punching_shear: calculation NOT VERIFIED")
+
+    def _check_settlement(self, *args, **kwargs):
+        raise NotImplementedError("_check_settlement: calculation NOT VERIFIED")
+
+    def _check_stability(self, *args, **kwargs):
+        raise NotImplementedError("_check_stability: calculation NOT VERIFIED")
+
     def _check_detailing_requirements(self, geometry: FootingGeometry) -> List[DesignCheck]:
         """Check detailing requirements"""
         
