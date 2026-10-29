@@ -166,147 +166,91 @@ class ThaiSeismicLoads:
             'สุราษฎร์ธานี': ThaiSeismicZone.ZONE_A, 'นครศรีธรรมราช': ThaiSeismicZone.ZONE_A
         }
     
-    def get_seismic_zone_data(self, location: Union[str, ThaiSeismicZone]) -> Dict[str, Any]:
-        """Get seismic zone data for location"""
-        if isinstance(location, str):
-            zone = self.provincial_zones.get(location, ThaiSeismicZone.ZONE_A)
-            location_desc = location
-        else:
-            zone = location
-            location_desc = f"Zone {zone.value}"
-        
-        pga = self.peak_ground_accelerations[zone]
-        
-        return {
-            'seismic_zone': zone,
-            'peak_ground_acceleration': pga,
-            'location': location_desc,
-            'zone_description': f"Zone {zone.value} - PGA {pga}g"
-        }
-    
-    def get_site_coefficients(self, pga: float, soil_type: ThaiSoilType) -> Tuple[float, float]:
-        """Get site coefficients Fa and Fv"""
-        validate_positive(pga, "Peak ground acceleration")
-        
-        # Find closest PGA value in tables
-        available_pgas = list(self.site_coefficient_fa[soil_type].keys())
-        closest_pga = min(available_pgas, key=lambda x: abs(x - pga))
-        
-        fa = self.site_coefficient_fa[soil_type][closest_pga]
-        fv = self.site_coefficient_fv[soil_type][closest_pga]
-        
-        return fa, fv
-    
-    def calculate_fundamental_period(self, building_geometry: ThaiBuildingGeometry) -> float:
-        """Calculate fundamental period of building"""
-        validate_positive(building_geometry.total_height, "Building height")
-        
-        height = building_geometry.total_height
-        system = building_geometry.structural_system
-        material = building_geometry.structural_material
-        
-        # Constants Ct and x by structural system and material
-        if system == ThaiStructuralSystem.MOMENT_FRAME:
-            ct, x = (0.035, 0.8) if material == 'steel' else (0.030, 0.9)
-        elif system == ThaiStructuralSystem.SHEAR_WALL:
-            ct, x = 0.020, 0.9
-        elif system == ThaiStructuralSystem.BRACED_FRAME:
-            ct, x = (0.030, 0.8) if material == 'steel' else (0.030, 0.9)
-        else:  # dual system
-            ct, x = 0.030, 0.9
-        
-        # Approximate period formula: Ta = Ct * hn^x
-        return ct * (height ** x)
-    
-    def calculate_seismic_coefficient(self, sds: float, r_factor: float, 
-                                    importance_factor: float, ta: Optional[float] = None,
-                                    sd1: Optional[float] = None) -> float:
-        """Calculate seismic coefficient Cs"""
-        validate_positive(sds, "Design spectral acceleration Sds")
-        validate_positive(r_factor, "Response modification factor R")
-        validate_positive(importance_factor, "Importance factor I")
-        
-        # Basic seismic coefficient
-        cs = sds / (r_factor / importance_factor)
-        
-        # Apply limits
-        cs_min = 0.01
-        if ta and sd1 and ta > 0:
-            cs_max = sd1 / (ta * (r_factor / importance_factor))
-        else:
-            cs_max = sds / 2.0
-        
-        return max(cs_min, min(cs, cs_max))
-    
-    def calculate_complete_seismic_analysis(self, 
-                                          location: Union[str, ThaiSeismicZone],
-                                          building_geometry: ThaiBuildingGeometry,
-                                          soil_type: ThaiSoilType,
-                                          importance_category: ThaiSeismicImportance) -> ThaiSeismicForces:
-        """Complete seismic analysis per TIS 1301/1302-61"""
-        
-        # Get seismic zone data
-        zone_data = self.get_seismic_zone_data(location)
-        pga = zone_data['peak_ground_acceleration']
-        
-        # Site coefficients
-        fa, fv = self.get_site_coefficients(pga, soil_type)
-        
-        # Design response spectrum parameters
-        sms = fa * pga
-        sm1 = fv * pga
-        sds = (2.0/3.0) * sms
-        sd1 = (2.0/3.0) * sm1
-        
-        # Building properties
-        total_weight = sum(building_geometry.story_weights)
-        importance_factor = self.importance_factors[importance_category]
-        
-        # Structural system factors
-        material = building_geometry.structural_material
-        system_factors = self.structural_system_factors[building_geometry.structural_system][material]
-        r_factor = system_factors['R']
-        
-        # Fundamental period
-        ta = self.calculate_fundamental_period(building_geometry)
-        
-        # Seismic coefficient
-        cs = self.calculate_seismic_coefficient(sds, r_factor, importance_factor, ta, sd1)
-        
-        # Base shear
-        base_shear = total_weight * cs
-        
-        # Distribute lateral forces
-        # Calculate k factor for force distribution
-        k = 1.0 if ta <= 0.5 else (2.0 if ta >= 2.5 else 1.0 + (ta - 0.5) / 2.0)
-        
-        # Calculate cumulative heights and distribute forces
-        heights = []
-        cumulative_height = 0.0
-        for story_height in building_geometry.story_heights:
-            cumulative_height += story_height
-            heights.append(cumulative_height)
-        
-        weights = building_geometry.story_weights
-        total_wh_k = sum(w * (h ** k) for w, h in zip(weights, heights))
-        
-        story_forces = {}
-        for i, (weight, height) in enumerate(zip(weights, heights), 1):
-            force = base_shear * (weight * (height ** k)) / total_wh_k
-            story_forces[i] = force
-        
-        return ThaiSeismicForces(
-            base_shear=base_shear,
-            seismic_coefficient=cs,
-            fundamental_period=ta,
-            peak_ground_acceleration=pga,
-            site_coefficient_fa=fa,
-            site_coefficient_fv=fv,
-            importance_factor=importance_factor,
-            response_modification=r_factor,
-            story_forces=story_forces
+def get_seismic_zone_data(self, location: Union[str, ThaiSeismicZone]) -> Dict[str, Any]:
+        """Province/PGA lookup is an unsupported placeholder, NOT official hazard."""
+        raise NotImplementedError(
+            "Unverified province-to-PGA map is disabled. Thai seismic design "
+            "requires official location-specific Ss/S1, site classification and "
+            "the applicable earthquake regulation; province name or guessed "
+            "PGA 0.15/0.25/0.40 g is insufficient."
         )
-    
+
+def get_site_coefficients(self, pga: float,
+                              soil_type: ThaiSoilType) -> Tuple[float, float]:
+        """Nearest-neighbor interpolation on unverified PGA tables is unsafe."""
+        raise NotImplementedError(
+            "Fa/Fv cannot be selected from nearest PGA. Use code-required "
+            "site-adjusted Ss/S1 and the correct site tables, with site study "
+            "for exceptional soil classes."
+        )
+
+def calculate_fundamental_period(self,
+                                    building_geometry: ThaiBuildingGeometry) -> float:
+        """Structural period method must be chosen per governing seismic code."""
+        raise NotImplementedError(
+            "Unverified Ct and exponent table; exact structural system and "
+            "current code period upper bounds are required."
+        )
+
+def calculate_seismic_coefficient(self, sds: float, r_factor: float,
+                                     importance_factor: float,
+                                     ta: Optional[float] = None,
+                                     sd1: Optional[float] = None) -> float:
+        """Incomplete Cs with default 0.01 and SdS/2 limits is disabled."""
+        raise NotImplementedError(
+            "Seismic Cs requires validated Ss/S1, SDS/SD1, period limits, "
+            "R and importance factors, site class and minimum shear provisions."
+        )
+
+    @staticmethod
+    def base_shear_from_verified_coefficient(
+            seismic_coefficient: float, effective_weight_kN: float) -> float:
+        """Arithmetic only: V=Cs*W with EXTERNALLY verified Cs and W."""
+        for name, value in (("Cs", seismic_coefficient),
+                            ("seismic effective weight", effective_weight_kN)):
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be finite and positive")
+        return seismic_coefficient * effective_weight_kN
+
+    @staticmethod
+    def distribute_base_shear(
+            base_shear_kN: float, story_heights_m: List[float],
+            story_weights_kN: List[float], exponent_k: float) -> Dict[int, float]:
+        """Pure normalization Fi=V*wi*hi**k / sum(wj*hj**k).
+
+        The code-specific k, vertical force exceptions, top force, and dynamic
+        requirements must be established separately. This is NOT seismic design.
+        Heights are elevations above base, NOT incremental story heights.
+        """
+        if not story_heights_m or len(story_heights_m) != len(story_weights_kN):
+            raise ValueError("Non-empty matching story arrays are required")
+        for name, x in [("V", base_shear_kN), ("k", exponent_k)]:
+            if not math.isfinite(x) or x <= 0:
+                raise ValueError(f"{name} must be finite and positive")
+        if (any(not math.isfinite(h) or h <= 0 for h in story_heights_m)
+                or any(not math.isfinite(w) or w <= 0 for w in story_weights_kN)):
+            raise ValueError("All elevations and weights must be positive finite")
+        if any(story_heights_m[i] >= story_heights_m[i+1]
+               for i in range(len(story_heights_m)-1)):
+            raise ValueError("Elevations must strictly increase above base")
+        weights = [w*h**exponent_k for w,h in zip(story_weights_kN, story_heights_m)]
+        sumw = sum(weights)
+        if not math.isfinite(sumw) or sumw <= 0:
+            raise ValueError("Invalid lateral force distribution denominator")
+        return {i: base_shear_kN*wk/sumw for i,wk in enumerate(weights,1)}
+
+def calculate_complete_seismic_analysis(
+            self, location: Union[str, ThaiSeismicZone],
+            building_geometry: ThaiBuildingGeometry,
+            soil_type: ThaiSoilType,
+            importance_category: ThaiSeismicImportance) -> ThaiSeismicForces:
+        """No automatic seismic certification from the unverified PGA lookup."""
+        raise NotImplementedError(
+            "Complete Thai seismic model NOT VERIFIED: use current government "
+            "site-specific spectrum, ground class, R, period, Cs limits, torsion, "
+            "drift, vertical distribution and required modal/dynamic checks."
+        )
+
     def generate_seismic_report(self, result: ThaiSeismicForces, 
                               project_info: Dict[str, str]) -> str:
         """Generate seismic load calculation report"""
@@ -369,31 +313,15 @@ Generated by Thai Seismic Loads v1.0
 
 # Convenience functions for quick calculations
 def get_seismic_zone(province: str) -> ThaiSeismicZone:
-    """Get seismic zone for Thai province"""
-    seismic_calc = ThaiSeismicLoads()
-    return seismic_calc.provincial_zones.get(province, ThaiSeismicZone.ZONE_A)
+    """Legacy API disabled: a provincial PGA guess cannot certify a building."""
+    raise NotImplementedError("Official site-specific seismic parameters required")
 
 
-def quick_seismic_analysis(location: str, building_height: float, 
-                          total_weight: float, soil_type: ThaiSoilType = ThaiSoilType.TYPE_C) -> Dict[str, float]:
-    """Quick seismic load analysis for preliminary design"""
-    seismic_calc = ThaiSeismicLoads()
-    
-    zone_data = seismic_calc.get_seismic_zone_data(location)
-    pga = zone_data['peak_ground_acceleration']
-    
-    fa, fv = seismic_calc.get_site_coefficients(pga, soil_type)
-    sds = (2.0/3.0) * fa * pga
-    
-    # Default parameters for quick analysis
-    ta = 0.03 * (building_height ** 0.9)  # Concrete moment frame
-    cs = seismic_calc.calculate_seismic_coefficient(sds, 8.0, 1.0, ta)  # R=8, I=1.0
-    base_shear = total_weight * cs
-    
-    return {
-        'seismic_zone': zone_data['seismic_zone'].value,
-        'peak_ground_acceleration': pga,
-        'seismic_coefficient': cs,
-        'base_shear_kn': base_shear,
-        'base_shear_per_weight': cs
-    }
+def quick_seismic_analysis(location: str, building_height: float,
+                           total_weight: float,
+                           soil_type: ThaiSoilType = ThaiSoilType.TYPE_C) -> Dict[str, float]:
+    """No automatic default concrete R=8 and default soil class C."""
+    raise NotImplementedError(
+        "Quick Thai seismic analysis NOT VERIFIED: provide official site "
+        "parameters and approved structural system; do not default R or soil"
+    )

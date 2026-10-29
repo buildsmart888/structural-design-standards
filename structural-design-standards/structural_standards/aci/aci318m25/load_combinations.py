@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 
-from ....utils.validation import StructuralValidator
+from ...utils.validation import StructuralValidator
 
 
 class LoadType(Enum):
@@ -68,7 +68,8 @@ class LoadCombination:
     combination_type: CombinationType
     factors: Dict[LoadType, float] = field(default_factory=dict)
     description: str = ""
-    
+    alternative_groups: List[Tuple[LoadType, ...]] = field(default_factory=list)
+
     def calculate_load_effect(self, loads: Dict[LoadType, float]) -> float:
         """
         Calculate total load effect for this combination
@@ -83,12 +84,21 @@ class LoadCombination:
         float
             Combined load effect
         """
-        total = 0.0
-        for load_type, factor in self.factors.items():
-            if load_type in loads:
-                total += factor * loads[load_type]
+        if any(not math.isfinite(float(v)) for v in loads.values()):
+            raise ValueError("Load effects must be finite")
+        grouped = {t for grp in self.alternative_groups for t in grp}
+        if any(sum(t in grp for grp in self.alternative_groups) > 1 for t in grouped):
+            raise ValueError("A load type appears in multiple alternative groups")
+        total = sum(f * loads.get(t, 0.0) for t, f in self.factors.items()
+                    if t not in grouped)
+        for group in self.alternative_groups:
+            # (Lr OR S OR R), NOT the sum. Choose the governing signed
+            # response for the current check. Case generation for both
+            # signs of lateral actions is handled separately.
+            total += max([self.factors[t] * loads[t] for t in group if t in loads]
+                         or [0.0])
         return total
-    
+
     def get_equation(self) -> str:
         """Get load combination equation as string"""
         terms = []
@@ -123,11 +133,13 @@ class ACI318M25LoadCombinations:
             'shear_and_torsion': 0.75,
             'compression_axial_ties': 0.65,
             'compression_axial_spiral': 0.75,
-            'bearing_on_concrete': 0.65,
-            'post_tensioned_anchorage': 0.85,
-            'strut_and_tie_nodal_zones': 0.80,
+            'bearing_on_concrete': 0.65,            # Table 21.2.1(d)
+            'post_tensioned_anchorage': 0.85,       # Table 21.2.1(h)
+            # Table 21.2.1(g): one value for struts, ties, nodal zones and
+            # bearing areas designed with the strut-and-tie model of Ch. 23
+            'strut_and_tie_nodal_zones': 0.75,
             'strut_and_tie_struts': 0.75,
-            'strut_and_tie_ties': 0.90
+            'strut_and_tie_ties': 0.75
         }
         
         # Initialize standard combinations
@@ -150,56 +162,60 @@ class ACI318M25LoadCombinations:
             ),
             
             LoadCombination(
-                name="1.2D + 1.6L + 0.5(Lr or S or R)",
+                name="1.2D + 1.6L + (0.5Lr or 0.3S or 0.5R)",
                 combination_type=CombinationType.STRENGTH,
                 factors={
                     LoadType.DEAD: 1.2,
                     LoadType.LIVE: 1.6,
                     LoadType.ROOF_LIVE: 0.5,
-                    LoadType.SNOW: 0.5,
+                    LoadType.SNOW: 0.3,
                     LoadType.RAIN: 0.5
                 },
-                description="Dead + Live + 0.5(Roof Live or Snow or Rain)"
+                description="Dead + Live + (0.5Roof Live or 0.3Snow or 0.5Rain) - Eq. (5.3.1b)",
+                alternative_groups=[(LoadType.ROOF_LIVE, LoadType.SNOW, LoadType.RAIN)]
             ),
             
             LoadCombination(
-                name="1.2D + 1.6(Lr or S or R) + (L or 0.5W)",
+                name="1.2D + (1.6Lr or 1.0S or 1.6R) + (1.0L or 0.5W)",
                 combination_type=CombinationType.STRENGTH,
                 factors={
                     LoadType.DEAD: 1.2,
                     LoadType.ROOF_LIVE: 1.6,
-                    LoadType.SNOW: 1.6,
+                    LoadType.SNOW: 1.0,
                     LoadType.RAIN: 1.6,
                     LoadType.LIVE: 1.0,
                     LoadType.WIND: 0.5
                 },
-                description="Dead + 1.6(Roof Live or Snow or Rain) + (Live or 0.5Wind)"
+                description="Dead + (1.6Roof Live or 1.0Snow or 1.6Rain) + (Live or 0.5Wind) - Eq. (5.3.1c)",
+                alternative_groups=[(LoadType.ROOF_LIVE, LoadType.SNOW, LoadType.RAIN),
+                                    (LoadType.LIVE, LoadType.WIND)]
             ),
             
             LoadCombination(
-                name="1.2D + 1.0W + L + 0.5(Lr or S or R)",
+                name="1.2D + 1.0W + 1.0L + (0.5Lr or 0.3S or 0.5R)",
                 combination_type=CombinationType.STRENGTH,
                 factors={
                     LoadType.DEAD: 1.2,
                     LoadType.WIND: 1.0,
                     LoadType.LIVE: 1.0,
                     LoadType.ROOF_LIVE: 0.5,
-                    LoadType.SNOW: 0.5,
+                    LoadType.SNOW: 0.3,
                     LoadType.RAIN: 0.5
                 },
-                description="Dead + Wind + Live + 0.5(Roof Live or Snow or Rain)"
+                description="Dead + Wind + Live + (0.5Roof Live or 0.3Snow or 0.5Rain) - Eq. (5.3.1d)",
+                alternative_groups=[(LoadType.ROOF_LIVE, LoadType.SNOW, LoadType.RAIN)]
             ),
             
             LoadCombination(
-                name="1.2D + 1.0E + L + 0.2S",
+                name="1.2D + 1.0E + 1.0L + 0.15S",
                 combination_type=CombinationType.STRENGTH,
                 factors={
                     LoadType.DEAD: 1.2,
                     LoadType.EARTHQUAKE: 1.0,
                     LoadType.LIVE: 1.0,
-                    LoadType.SNOW: 0.2
+                    LoadType.SNOW: 0.15
                 },
-                description="Dead + Earthquake + Live + 0.2Snow"
+                description="Dead + Earthquake + Live + 0.15Snow - Eq. (5.3.1e)"
             ),
             
             LoadCombination(
@@ -380,6 +396,33 @@ class ACI318M25LoadCombinations:
         
         return results
     
+    def calculate_signed_strength_envelope(
+            self, loads: Dict[LoadType, float]) -> Dict[str, float]:
+        """Enumerate the two possible signs of W and E load EFFECTS.
+
+        This does NOT invent wind directions or seismic orthogonal effects:
+        callers must run structural analysis for every required direction
+        and pass the signed member response as W and E. Returns positive
+        and negative governing effects separately, not just the maximum.
+        """
+        import itertools
+        outcomes = {}
+        keys = [x for x in (LoadType.WIND, LoadType.EARTHQUAKE) if x in loads]
+        for signs in itertools.product((1, -1), repeat=len(keys)):
+            current = loads.copy()
+            suffix = ""
+            for key, sign in zip(keys, signs):
+                current[key] = sign * loads[key]
+                suffix += f"_{key.value}{'plus' if sign > 0 else 'minus'}"
+            for combination in self._strength_combinations:
+                name = combination.name + suffix
+                outcomes[name] = combination.calculate_load_effect(current)
+        return {
+            "maximum": max(outcomes.values()),
+            "minimum": min(outcomes.values()),
+            "governing_absolute": max(outcomes.values(), key=lambda x: abs(x)),
+        }
+
     def get_strength_reduction_factor(self, failure_mode: str) -> float:
         """
         Get strength reduction factor (φ) for specified failure mode
@@ -401,7 +444,8 @@ class ACI318M25LoadCombinations:
     
     def get_transition_phi_factor(self, 
                                 net_tensile_strain: float,
-                                reinforcement_type: str = "ties") -> float:
+                                reinforcement_type: str = "ties",
+                                fy: float = 420.0) -> float:
         """
         Calculate φ factor for sections in transition zone
         ACI 318M-25 Section 21.2.2
@@ -412,15 +456,20 @@ class ACI318M25LoadCombinations:
             Net tensile strain in extreme tension steel
         reinforcement_type : str
             "ties" or "spiral"
+        fy : float
+            Specified yield strength of the reinforcement (MPa), used for
+            epsilon_ty = fy / Es per 21.2.2.1. Grade 420 -> 0.0021.
             
         Returns:
         --------
         float
             Interpolated φ factor
         """
-        # Strain limits
-        epsilon_ty = 0.002  # Approximate yield strain (fy = 400 MPa)
-        epsilon_t_limit = 0.005  # Tension-controlled limit
+        # Strain limits per ACI 318M-25 21.2.2.1 and Table 21.2.2:
+        # compression-controlled at epsilon_ty, tension-controlled at epsilon_ty + 0.003
+        ES = 200000.0  # Modulus of elasticity of reinforcement steel (MPa)
+        epsilon_ty = fy / ES
+        epsilon_t_limit = epsilon_ty + 0.003  # Tension-controlled limit
         
         if net_tensile_strain >= epsilon_t_limit:
             # Tension-controlled

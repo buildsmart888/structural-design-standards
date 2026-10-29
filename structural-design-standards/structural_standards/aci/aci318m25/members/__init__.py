@@ -273,5 +273,3 @@ def get_member_capabilities():
 
 
 # Module information
-print(f"ACI 318M-25 Members Package v{__version__} loaded successfully")
-print(f"Available member types: {', '.join(get_available_members().keys())}")

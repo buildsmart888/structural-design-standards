@@ -20,7 +20,6 @@ from .thai_units import (
     ThaiPressureUnit,
     ThaiLengthUnit,
     ThaiAreaUnit,
-    ThaiVolumeUnit,
     ThaiWeightUnit,
     ksc_to_mpa,
     mpa_to_ksc,
@@ -37,7 +36,6 @@ __all__ = [
     'ThaiPressureUnit',
     'ThaiLengthUnit', 
     'ThaiAreaUnit',
-    'ThaiVolumeUnit',
     'ThaiWeightUnit',
     'ksc_to_mpa',
     'mpa_to_ksc',
@@ -50,5 +48,3 @@ __all__ = [
 KSC_TO_MPA = 9.80665 / 100  # 1 ksc = 0.0980665 MPa
 MPA_TO_KSC = 100 / 9.80665  # 1 MPa = 10.197 ksc
 
-print("📏 Thai Unit Systems v1.0.0 loaded")
-print("🔧 ksc ↔ MPa and traditional Thai unit conversions ready")

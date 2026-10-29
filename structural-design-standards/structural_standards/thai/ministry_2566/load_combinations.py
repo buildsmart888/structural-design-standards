@@ -16,7 +16,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 
-from ....utils.validation import StructuralValidator
+from ...utils.validation import StructuralValidator
 
 
 class ThaiLoadType(Enum):
@@ -62,12 +62,15 @@ class ThaiLoadCombination:
         float
             Combined load effect
         """
-        total = 0.0
-        for load_type, factor in self.factors.items():
-            if load_type in loads:
-                total += factor * loads[load_type]
-        return total
-    
+        if ThaiLoadType.DEAD not in loads:
+            raise ValueError("D (permanent load EFFECT) is required, even if zero")
+        for kind, magnitude in loads.items():
+            if not isinstance(kind, ThaiLoadType):
+                raise TypeError(f"Unknown Thai load key: {kind!r}")
+            if not isinstance(magnitude, (int, float)) or not math.isfinite(magnitude):
+                raise ValueError(f"Non-finite/non-numeric load effect: {kind}")
+        return sum(f * loads.get(t, 0.0) for t, f in self.factors.items())
+
     def get_equation(self) -> str:
         """Get load combination equation as string"""
         terms = []
@@ -102,214 +105,132 @@ class ThaiMinistryLoadCombinations:
     การรวมแรงตามกฎกระทรวง พ.ศ. 2566
     """
     
-    def __init__(self):
-        """Initialize Thai load combinations"""
+    def __init__(self, good_quality_control: bool = False):
+        """Select phi using explicit evidence of construction quality.
+
+        Section 8 has TWO columns. Without a documented quality-control program
+        the conservative (second) column is used. This is NOT ACI phi.
+        """
         self.validator = StructuralValidator()
-        
-        # Safety factors per Ministry Regulation B.E. 2566
+        self.good_quality_control = good_quality_control
+
+        # Structural strength-design load factors, not EC2 material gammas.
         self.safety_factors = {
-            'concrete': 1.5,        # γc สำหรับคอนกรีต
-            'steel': 1.15,          # γs สำหรับเหล็ก
-            'dead_load': 1.4,       # ค่าตัวคูณน้ำหนักตาย
-            'live_load': 1.6,       # ค่าตัวคูณน้ำหนักใช้สอย
-            'wind_load': 1.6,       # ค่าตัวคูณแรงลม
-            'seismic_load': 1.0     # ค่าตัวคูณแรงแผ่นดินไหว (รวมกับค่าตัวคูณพิเศษ)
+            "dead_load": 1.4,
+            "live_load": 1.7,
+            "wind_load": 1.6,
+            "seismic_load": 1.0,
+            "lateral_earth": 1.7,
+            "fluid": 1.4,
+            "thermal": 1.4,
         }
-        
-        # Strength reduction factors (φ factors)
+        # Thai Ministerial Regulation B.E. 2566 Section 8:
+        # (good documented quality control, not demonstrated).
+        quality = {
+            "flexure_tension_controlled": (0.90, 0.75),
+            "axial_tension": (0.90, 0.75),
+            "axial_compression_spiral": (0.75, 0.625),
+            "axial_compression_tied": (0.70, 0.60),
+            "shear_and_torsion": (0.85, 0.70),
+            "bearing_on_concrete": (0.70, 0.60),
+        }
         self.phi_factors = {
-            'flexure_tension_controlled': 0.90,      # งานโค้งควบคุมด้วยแรงดึง
-            'flexure_compression_controlled': 0.65,   # งานโค้งควบคุมด้วยแรงอัด
-            'shear_and_torsion': 0.75,               # แรงเฉือนและแรงบิด
-            'axial_compression_tied': 0.65,          # แรงอัดตามแนวแกนด้วยเหล็กปลอก
-            'axial_compression_spiral': 0.70,        # แรงอัดตามแนวแกนด้วยเหล็กเกลียว
-            'bearing_on_concrete': 0.65,             # แรงรองรับบนคอนกรีต
+            key: pair[0] if good_quality_control else pair[1]
+            for key, pair in quality.items()
         }
-        
-        # Initialize standard combinations
         self._ultimate_combinations = self._create_ultimate_combinations()
         self._serviceability_combinations = self._create_serviceability_combinations()
-    
+
+    @staticmethod
+    def _expand_lateral(name: str, kind: ThaiCombinationType,
+                        factors: Dict[ThaiLoadType, float],
+                        clause: str) -> List[ThaiLoadCombination]:
+        """Evaluate BOTH opposite signs of every present lateral load.
+
+        The signed effects for each direction (Wx, Wy, Ex, Ey) still have to be
+        passed as separate analyses; this routine never creates their geometry.
+        """
+        lateral = [key for key in (ThaiLoadType.WIND, ThaiLoadType.EARTHQUAKE)
+                   if key in factors]
+        if not lateral:
+            return [ThaiLoadCombination(name=name, combination_type=kind,
+                                        factors=factors.copy(), reference=clause)]
+        if len(lateral) != 1:
+            raise ValueError("Wind and earthquake must not be combined by this helper")
+        key = lateral[0]
+        return [
+            ThaiLoadCombination(
+                name=name + suffix, combination_type=kind,
+                factors={**factors, key: factors[key] * sign},
+                description_english="Signed lateral load effect; analyze each direction",
+                reference=clause,
+            )
+            for sign, suffix in ((1.0, "+"), (-1.0, "-"))
+        ]
+
     def _create_ultimate_combinations(self) -> List[ThaiLoadCombination]:
+        """EXACT load factors of Ministerial Regulation B.E. 2566, clause 7.
+
+        W/E lateral components expanded to +/-; load shapes/directions and
+        the applicability of each clause remain responsibilities of the caller.
         """
-        Create ultimate limit state combinations per B.E. 2566
-        """
-        combinations = []
-        
-        combinations.extend([
-            ThaiLoadCombination(
-                name="ULS-1",
-                combination_type=ThaiCombinationType.ULTIMATE_LIMIT_STATE,
-                factors={
-                    ThaiLoadType.DEAD: 1.4,
-                    ThaiLoadType.LIVE: 1.6
-                },
-                description_thai="น้ำหนักตาย + น้ำหนักใช้สอย",
-                description_english="Dead + Live loads",
-                reference="Ministry Regulation B.E. 2566 Section 4.2.1"
-            ),
-            
-            ThaiLoadCombination(
-                name="ULS-2",
-                combination_type=ThaiCombinationType.ULTIMATE_LIMIT_STATE,
-                factors={
-                    ThaiLoadType.DEAD: 1.2,
-                    ThaiLoadType.LIVE: 1.6,
-                    ThaiLoadType.WIND: 1.6
-                },
-                description_thai="น้ำหนักตาย + น้ำหนักใช้สอย + แรงลม",
-                description_english="Dead + Live + Wind loads",
-                reference="Ministry Regulation B.E. 2566 Section 4.2.2"
-            ),
-            
-            ThaiLoadCombination(
-                name="ULS-3",
-                combination_type=ThaiCombinationType.ULTIMATE_LIMIT_STATE,
-                factors={
-                    ThaiLoadType.DEAD: 1.2,
-                    ThaiLoadType.LIVE: 1.0,
-                    ThaiLoadType.EARTHQUAKE: 1.0
-                },
-                description_thai="น้ำหนักตาย + น้ำหนักใช้สอย + แรงแผ่นดินไหว",
-                description_english="Dead + Live + Earthquake loads",
-                reference="Ministry Regulation B.E. 2566 Section 4.2.3"
-            ),
-            
-            ThaiLoadCombination(
-                name="ULS-4",
-                combination_type=ThaiCombinationType.ULTIMATE_LIMIT_STATE,
-                factors={
-                    ThaiLoadType.DEAD: 0.9,
-                    ThaiLoadType.WIND: 1.6
-                },
-                description_thai="น้ำหนักตายขั้นต่ำ + แรงลม (ตรวจสอบการเคว้ง)",
-                description_english="Minimum Dead + Wind (overturning check)",
-                reference="Ministry Regulation B.E. 2566 Section 4.2.4"
-            ),
-            
-            ThaiLoadCombination(
-                name="ULS-5",
-                combination_type=ThaiCombinationType.ULTIMATE_LIMIT_STATE,
-                factors={
-                    ThaiLoadType.DEAD: 0.9,
-                    ThaiLoadType.EARTHQUAKE: 1.0
-                },
-                description_thai="น้ำหนักตายขั้นต่ำ + แรงแผ่นดินไหว (ตรวจสอบการเคว้ง)",
-                description_english="Minimum Dead + Earthquake (overturning check)",
-                reference="Ministry Regulation B.E. 2566 Section 4.2.5"
-            ),
-            
-            ThaiLoadCombination(
-                name="ULS-6",
-                combination_type=ThaiCombinationType.ULTIMATE_LIMIT_STATE,
-                factors={
-                    ThaiLoadType.DEAD: 1.2,
-                    ThaiLoadType.LIVE: 0.5,
-                    ThaiLoadType.WIND: 1.6
-                },
-                description_thai="น้ำหนักตาย + น้ำหนักใช้สอยลดลง + แรงลม",
-                description_english="Dead + Reduced Live + Wind loads",
-                reference="Ministry Regulation B.E. 2566 Section 4.2.6"
-            )
-        ])
-        
-        return combinations
-    
+        D = ThaiLoadType.DEAD
+        L = ThaiLoadType.LIVE
+        W = ThaiLoadType.WIND
+        E = ThaiLoadType.EARTHQUAKE
+        H = ThaiLoadType.LATERAL_EARTH
+        F = ThaiLoadType.FLUID
+        T = ThaiLoadType.THERMAL
+        S = ThaiLoadType.SETTLEMENT
+        rows = [
+            ("ULS-7.1",    {D: 1.4, L: 1.7}),
+            ("ULS-7.2a",   {D: 1.05, L: 1.275, W: 1.6}),
+            ("ULS-7.2b",   {D: 0.9, W: 1.6}),
+            ("ULS-7.3a",   {D: 1.05, L: 1.275, E: 1.0}),
+            ("ULS-7.3b",   {D: 0.9, E: 1.0}),
+            ("ULS-7.4aH",  {D: 1.4, L: 1.7, H: 1.7}),
+            ("ULS-7.4bH",  {D: 0.9, H: 1.7}),
+            ("ULS-7.4aF",  {D: 1.4, L: 1.7, F: 1.4}),
+            ("ULS-7.4bF",  {D: 0.9, F: 1.4}),
+            ("ULS-7.5a",   {D: 1.05, L: 1.275, T: 1.05, S: 1.05}),
+            ("ULS-7.5b",   {D: 1.4, T: 1.4, S: 1.4}),
+        ]
+        result = []
+        for name, factors in rows:
+            result.extend(self._expand_lateral(
+                name, ThaiCombinationType.ULTIMATE_LIMIT_STATE,
+                factors, "Ministry Regulation B.E. 2566 clause 7"
+            ))
+        return result
+
     def _create_serviceability_combinations(self) -> List[ThaiLoadCombination]:
-        """
-        Create serviceability limit state combinations per Ministry Regulation B.E. 2566
-        หน่วยแรงที่ยอมให้ - Allowable Stress Method per Ministry Regulation B.E. 2566
-        """
-        combinations = []
-        
-        # Allowable stress combinations (100-122 series)
-        combinations.extend([
-            # 100: DL
-            ThaiLoadCombination(
-                name="ASD-100",
-                combination_type=ThaiCombinationType.SERVICEABILITY_LIMIT_STATE,
-                factors={ThaiLoadType.DEAD: 1.0},
-                description_thai="น้ำหนักบรรทุกตายตัวเท่านั้น",
-                description_english="Dead load only",
-                reference="Ministry Regulation B.E. 2566 - 100"
-            ),
-            
-            # 101: DL + LL
-            ThaiLoadCombination(
-                name="ASD-101",
-                combination_type=ThaiCombinationType.SERVICEABILITY_LIMIT_STATE,
-                factors={ThaiLoadType.DEAD: 1.0, ThaiLoadType.LIVE: 1.0},
-                description_thai="น้ำหนักตายตัว + น้ำหนักบรรจร",
-                description_english="Dead + Live loads",
-                reference="Ministry Regulation B.E. 2566 - 101"
-            ),
-            
-            # Wind combinations (102-109)
-            # 102: DL + 0.75(LL + W(X+))
-            ThaiLoadCombination(
-                name="ASD-102",
-                combination_type=ThaiCombinationType.SERVICEABILITY_LIMIT_STATE,
-                factors={ThaiLoadType.DEAD: 1.0, ThaiLoadType.LIVE: 0.75, ThaiLoadType.WIND: 0.75},
-                description_thai="น้ำหนักตายตัว + 0.75(น้ำหนักบรรจร + แรงลม(X+))",
-                description_english="Dead + 0.75(Live + Wind(X+))",
-                reference="Ministry Regulation B.E. 2566 - 102"
-            ),
-            
-            # 106: 0.6DL + W(X+)
-            ThaiLoadCombination(
-                name="ASD-106",
-                combination_type=ThaiCombinationType.SERVICEABILITY_LIMIT_STATE,
-                factors={ThaiLoadType.DEAD: 0.6, ThaiLoadType.WIND: 1.0},
-                description_thai="0.6×น้ำหนักตายตัว + แรงลม(X+)",
-                description_english="0.6×Dead + Wind(X+)",
-                reference="Ministry Regulation B.E. 2566 - 106"
-            ),
-            
-            # Earthquake combinations (110-121)
-            # 110: DL + 0.7E(X+)
-            ThaiLoadCombination(
-                name="ASD-110",
-                combination_type=ThaiCombinationType.SERVICEABILITY_LIMIT_STATE,
-                factors={ThaiLoadType.DEAD: 1.0, ThaiLoadType.EARTHQUAKE: 0.7},
-                description_thai="น้ำหนักตายตัว + 0.7×แรงแผ่นดินไหว(X+)",
-                description_english="Dead + 0.7×Earthquake(X+)",
-                reference="Ministry Regulation B.E. 2566 - 110"
-            ),
-            
-            # 114: DL + 0.525E(X+) + 0.75LL
-            ThaiLoadCombination(
-                name="ASD-114",
-                combination_type=ThaiCombinationType.SERVICEABILITY_LIMIT_STATE,
-                factors={ThaiLoadType.DEAD: 1.0, ThaiLoadType.EARTHQUAKE: 0.525, ThaiLoadType.LIVE: 0.75},
-                description_thai="น้ำหนักตายตัว + 0.525×แรงแผ่นดินไหว(X+) + 0.75×น้ำหนักบรรจร",
-                description_english="Dead + 0.525×Earthquake(X+) + 0.75×Live",
-                reference="Ministry Regulation B.E. 2566 - 114"
-            ),
-            
-            # 118: 0.6DL + 0.7E(X+)
-            ThaiLoadCombination(
-                name="ASD-118",
-                combination_type=ThaiCombinationType.SERVICEABILITY_LIMIT_STATE,
-                factors={ThaiLoadType.DEAD: 0.6, ThaiLoadType.EARTHQUAKE: 0.7},
-                description_thai="0.6×น้ำหนักตายตัว + 0.7×แรงแผ่นดินไหว(X+)",
-                description_english="0.6×Dead + 0.7×Earthquake(X+)",
-                reference="Ministry Regulation B.E. 2566 - 118"
-            ),
-            
-            # Special combinations
-            # 122: DL + LL + H + F
-            ThaiLoadCombination(
-                name="ASD-122",
-                combination_type=ThaiCombinationType.SERVICEABILITY_LIMIT_STATE,
-                factors={ThaiLoadType.DEAD: 1.0, ThaiLoadType.LIVE: 1.0, ThaiLoadType.LATERAL_EARTH: 1.0, ThaiLoadType.FLUID: 1.0},
-                description_thai="น้ำหนักตายตัว + น้ำหนักบรรจร + แรงดันดินด้านข้าง + แรงดันน้ำ",
-                description_english="Dead + Live + Lateral earth pressure + Fluid pressure",
-                reference="Ministry Regulation B.E. 2566 - 122"
-            )
-        ])
-        
-        return combinations
-    
+        """ASD/service load effects in clause 6, NOT ASCE 7 combinations."""
+        D = ThaiLoadType.DEAD
+        L = ThaiLoadType.LIVE
+        W = ThaiLoadType.WIND
+        E = ThaiLoadType.EARTHQUAKE
+        H = ThaiLoadType.LATERAL_EARTH
+        F = ThaiLoadType.FLUID
+        T = ThaiLoadType.THERMAL
+        S = ThaiLoadType.SETTLEMENT
+        rows = [
+            ("ASD-6.1",  {D: 1.0, L: 1.0}),
+            ("ASD-6.2a", {D: 1.0, L: 0.75, W: 0.75}),
+            ("ASD-6.2b", {D: 0.6, W: 1.0}),
+            ("ASD-6.3a", {D: 1.0, E: 0.7}),
+            ("ASD-6.3b", {D: 1.0, L: 0.75, E: 0.525}),
+            ("ASD-6.3c", {D: 0.6, E: 0.7}),
+            ("ASD-6.4",  {D: 1.0, L: 1.0, H: 1.0, F: 1.0,
+                          T: 1.0, S: 1.0}),
+        ]
+        result = []
+        for name, factors in rows:
+            result.extend(self._expand_lateral(
+                name, ThaiCombinationType.SERVICEABILITY_LIMIT_STATE,
+                factors, "Ministry Regulation B.E. 2566 clause 6"
+            ))
+        return result
+
     def get_ultimate_combinations(self) -> List[ThaiLoadCombination]:
         """Get all ultimate limit state combinations"""
         return self._ultimate_combinations.copy()
@@ -396,7 +317,9 @@ class ThaiMinistryLoadCombinations:
         float
             Safety factor value
         """
-        return self.safety_factors.get(material_or_load, 1.0)
+        if material_or_load not in self.safety_factors:
+            raise KeyError(f"Unverified or unknown Thai safety factor: {material_or_load}")
+        return self.safety_factors[material_or_load]
     
     def get_phi_factor(self, failure_mode: str) -> float:
         """
@@ -418,32 +341,12 @@ class ThaiMinistryLoadCombinations:
             raise ValueError(f"Unknown failure mode: {failure_mode}")
     
     def validate_loads(self, loads: Dict[ThaiLoadType, float]) -> bool:
-        """
-        Validate load dictionary
-        
-        Parameters:
-        -----------
-        loads : Dict[ThaiLoadType, float]
-            Load values to validate
-            
-        Returns:
-        --------
-        bool
-            True if all loads are valid
-        """
-        try:
-            for load_type, value in loads.items():
-                if not isinstance(load_type, ThaiLoadType):
-                    raise ValueError(f"Invalid load type: {load_type}")
-                if not isinstance(value, (int, float)):
-                    raise ValueError(f"Load value must be numeric: {value}")
-                if value < 0:
-                    raise ValueError(f"Load value cannot be negative: {value}")
-            return True
-        except ValueError as e:
-            print(f"Load validation error: {e}")
-            return False
-    
+        """Signed internal-force effects are allowed; NaN/Inf are NEVER valid."""
+        return (ThaiLoadType.DEAD in loads
+                and all(isinstance(k, ThaiLoadType)
+                        and isinstance(v, (float, int))
+                        and math.isfinite(v) for k,v in loads.items()))
+
     def print_combination_table(self, 
                               combination_type: ThaiCombinationType = ThaiCombinationType.ULTIMATE_LIMIT_STATE,
                               language: str = "thai"):

@@ -27,7 +27,7 @@ from .design_requirements import (
     ThaiSupportType, ThaiCoverRequirement, ThaiDeflectionLimit
 )
 from .materials.concrete import ThaiConcrete, ThaiConcreteGrade
-from .materials.steel import ThaiReinforcementSteel, ThaiSteelGrade, ThaiRebarDesignation
+from .materials.steel import ThaiSteel, ThaiReinforcementSteel, ThaiSteelGrade, ThaiRebarDesignation
 from ...utils.validation import StructuralValidator, validate_positive
 
 
@@ -88,17 +88,23 @@ class ThaiMinistryRegulation2566:
         self.regulation_info = {
             'name_thai': 'กฎกระทรวง กำหนดการออกแบบโครงสร้างอาคาร และลักษณะและคุณสมบัติของวัสดุที่ใช้ในงานโครงสร้างอาคาร พ.ศ. 2566',
             'name_english': 'Ministry Regulation for Building Structural Design and Material Properties B.E. 2566 (2023)',
-            'effective_date': '2023-12-01',
+            'effective_date': 'Verify exact commencement date and transitional provisions in Royal Gazette',
             'supersedes': 'กฎกระทรวง พ.ศ. 2527',
             'authority': 'กระทรวงมหาดไทย (Ministry of Interior)',
-            'scope': 'ใช้บังคับกับอาคารทุกประเภทในประเทศไทย'
+            'scope': 'Subject to legal applicability and transitional exceptions'
         }
         
         # Provincial zones for wind and seismic loads
         self.provincial_zones = self._initialize_provincial_zones()
     
     def _initialize_provincial_zones(self) -> Dict[str, Dict[str, Any]]:
-        """Initialize Thai provincial zones for wind and seismic loads"""
+        """DEPRECATED illustrative zoning table - do not use for design.
+
+        get_wind_zone_data()/get_seismic_zone_data() now delegate to
+        loads/wind_loads.py and loads/seismic_loads.py, which are the single
+        source of truth. This table is kept only for report text and is known
+        to disagree with those modules.
+        """
         return {
             'wind_zones': {
                 'zone_1': {
@@ -191,51 +197,41 @@ class ThaiMinistryRegulation2566:
         """Create Thai concrete with specified grade"""
         return ThaiConcrete(grade=grade)
     
-    def create_thai_steel(self, grade: str) -> ThaiReinforcementSteel:
-        """Create Thai steel with specified grade"""
-        return ThaiReinforcementSteel(grade=grade)
-    
-    def validate_material_combination(self, 
-                                    concrete_grade: str, 
-                                    steel_grade: str,
-                                    environment: ThaiEnvironmentType) -> Dict[str, Any]:
-        """Validate concrete and steel grade combination"""
-        result = {
-            'is_valid': True,
-            'warnings': [],
-            'recommendations': [],
-            'material_compatibility': 'compatible'
-        }
-        
+    def create_thai_steel(self, grade: str) -> ThaiSteel:
+        """Thai steel grade, NOT a reinforcing bar designation."""
+        return ThaiSteel(grade=grade)
+
+    def validate_material_combination(
+            self, concrete_grade: str, steel_grade: str,
+            environment: ThaiEnvironmentType) -> Dict[str, Any]:
+        """Check syntactic grade recognition only; no durability certification.
+
+        Grade names alone cannot verify bond, confinement, compatibility,
+        environmental exposure or actual material test certificates.
+        """
         try:
-            concrete = self.create_thai_concrete(concrete_grade)
-            steel = self.create_thai_steel(steel_grade)
-            
-            # Check material compatibility
-            fc_mpa = concrete.fc_prime
-            fy_mpa = steel.fy
-            
-            # Basic compatibility checks
-            if fc_mpa < 18.0 and fy_mpa > 400.0:
-                result['warnings'].append("คอนกรีตกำลังต่ำกับเหล็กกำลังสูง อาจมีปัญหาการยึดเกาะ")
-                result['warnings'].append("Low strength concrete with high strength steel may have bond issues")
-            
-            if environment == ThaiEnvironmentType.MARINE and fc_mpa < 28.0:
-                result['warnings'].append("สภาพแวดล้อมทางทะเลควรใช้คอนกรีตกำลังสูง (≥Fc280)")
-                result['warnings'].append("Marine environment should use high strength concrete (≥Fc280)")
-            
-            # Recommendations
-            if fc_mpa >= 28.0 and fy_mpa >= 400.0:
-                result['recommendations'].append("การผสมวัสดุเหมาะสมสำหรับงานโครงสร้างคุณภาพสูง")
-                result['recommendations'].append("Material combination suitable for high-quality structural work")
-        
-        except Exception as e:
-            result['is_valid'] = False
-            result['warnings'].append(f"ข้อผิดพลาดในการตรวจสอบวัสดุ: {str(e)}")
-            result['material_compatibility'] = 'invalid'
-        
-        return result
-    
+            concrete=self.create_thai_concrete(concrete_grade)
+            steel=self.create_thai_steel(steel_grade)
+        except (ValueError, TypeError) as err:
+            return {
+                "is_valid": False,
+                "warnings": [str(err)],
+                "recommendations": [],
+                "material_compatibility": "invalid",
+            }
+        return {
+            "is_valid": False,
+            "warnings": ["Material grades recognized, but durability, mill "
+                         "certificates, bar arrangement and exposure are "
+                         "NOT VERIFIED; do not report compliant"],
+            "recommendations": [
+                "Perform applicable material tests and detailing/design checks."
+            ],
+            "material_compatibility": "not_verified",
+            "concrete_fc_MPa": concrete.fc_prime,
+            "steel_fy_MPa": steel.fy,
+        }
+
     # Safety Factor Methods
     def get_safety_factor(self, material_or_load: str) -> float:
         """Get safety factor per Ministry Regulation"""
@@ -246,98 +242,58 @@ class ThaiMinistryRegulation2566:
         return self.load_combinations.get_phi_factor(failure_mode)
     
     # Provincial Zone Methods
+    # These delegate to the dedicated load modules so the province -> zone mapping
+    # and the design values have exactly one source of truth
+    # (loads/wind_loads.py, loads/seismic_loads.py). The duplicate table that used
+    # to live here disagreed with both - Bangkok 35 m/s vs 25 m/s, Chiang Mai
+    # 0.15g vs 0.40g - and silently understated the design actions.
     def get_wind_zone_data(self, province: str) -> Optional[Dict[str, Any]]:
-        """Get wind zone data for province"""
-        for zone_id, zone_data in self.provincial_zones['wind_zones'].items():
-            if province in zone_data['provinces']:
-                return {
-                    'zone_id': zone_id,
-                    'wind_speed': zone_data['wind_speed'],
-                    'description_thai': zone_data['description_thai'],
-                    'description_english': zone_data['description_english']
-                }
-        return None
+        """Get wind zone data for province (delegates to ThaiWindLoads)"""
+        from .loads.wind_loads import ThaiWindLoads
+        
+        zone, wind_speed, description = ThaiWindLoads().get_wind_zone_for_province(province)
+        return {
+            'zone_id': 'zone_%s' % zone.value,
+            'wind_speed': wind_speed,
+            'description_english': description
+        }
     
     def get_seismic_zone_data(self, province: str) -> Optional[Dict[str, Any]]:
-        """Get seismic zone data for province"""
-        for zone_id, zone_data in self.provincial_zones['seismic_zones'].items():
-            if province in zone_data['provinces']:
-                return {
-                    'zone_id': zone_id,
-                    'pga': zone_data['pga'],
-                    'description_thai': zone_data['description_thai'],
-                    'description_english': zone_data['description_english']
-                }
-        return None
+        """Get seismic zone data for province (delegates to ThaiSeismicLoads)"""
+        from .loads.seismic_loads import ThaiSeismicLoads
+        
+        data = ThaiSeismicLoads().get_seismic_zone_data(province)
+        return {
+            'zone_id': 'zone_%s' % data['seismic_zone'].value,
+            'pga': data['peak_ground_acceleration'],
+            'description_english': data['zone_description']
+        }
     
     # Comprehensive Compliance Check
-    def check_project_compliance(self, project_data: ThaiProjectData) -> List[ThaiComplianceResult]:
+    def check_project_compliance(
+            self, project_data: ThaiProjectData) -> List[ThaiComplianceResult]:
+        """NEVER certify a project from grade, assumed cover and material phi.
+
+        The previous implementation inserted fake is_compliant=True for cover
+        and safety factors without using actual design values, then the report
+        marked projects COMPLIANT. It is unsafe and has been disabled.
         """
-        Comprehensive project compliance check
-        
-        Parameters:
-        -----------
-        project_data : ThaiProjectData
-            Project information
-            
-        Returns:
-        --------
-        List[ThaiComplianceResult]
-            Compliance check results
-        """
-        results = []
-        
-        # Material compliance
-        material_validation = self.validate_material_combination(
-            project_data.concrete_grade,
-            project_data.steel_grade,
-            project_data.environment_type
-        )
-        
-        results.append(ThaiComplianceResult(
-            is_compliant=material_validation['is_valid'],
-            category="material_compatibility",
-            description_thai="ความเข้ากันได้ของวัสดุ",
-            description_english="Material compatibility",
-            actual_value=1.0 if material_validation['is_valid'] else 0.0,
-            required_value=1.0,
-            margin=0.0,
-            reference="Ministry Regulation B.E. 2566 Section 3",
-            warnings=material_validation['warnings'],
-            recommendations=material_validation['recommendations']
-        ))
-        
-        # Cover requirements check (example for slab)
-        cover_req = self.get_concrete_cover(ThaiElementType.SLAB, project_data.environment_type)
-        if cover_req:
-            results.append(ThaiComplianceResult(
-                is_compliant=True,  # Would be checked against actual design
-                category="concrete_cover",
-                description_thai=f"ความหนาคอนกรีตปิดแผ่นพื้น - {cover_req.description_thai}",
-                description_english=f"Slab concrete cover - {cover_req.description_english}",
-                actual_value=cover_req.cover_mm,  # Would be actual from design
-                required_value=cover_req.cover_mm,
-                margin=0.0,
-                reference=cover_req.reference
-            ))
-        
-        # Safety factors compliance
-        concrete_sf = self.get_safety_factor('concrete')
-        steel_sf = self.get_safety_factor('steel')
-        
-        results.append(ThaiComplianceResult(
-            is_compliant=True,
-            category="safety_factors",
-            description_thai="ค่าความปลอดภัยวัสดุ",
-            description_english="Material safety factors",
-            actual_value=concrete_sf,
-            required_value=1.5,
-            margin=0.0,
-            reference="Ministry Regulation B.E. 2566 Section 4.1"
-        ))
-        
-        return results
-    
+        return [ThaiComplianceResult(
+            is_compliant=False, category="full_project_design_not_verified",
+            description_thai="ยังไม่ได้ตรวจสอบความปลอดภัยของอาคารครบทุกกรณี",
+            description_english=(
+                "Complete structural project compliance cannot be verified "
+                "from the supplied project metadata."
+            ),
+            actual_value=0.0, required_value=1.0, margin=-1.0,
+            reference="Thai Ministerial Regulation B.E. 2566, clauses 4-25",
+            warnings=[
+                "Design loads, member demand and capacities, settlement, "
+                "wind/seismic, anchorage, deflection, fire and authority "
+                "approval are missing; certification prohibited."
+            ]
+        )]
+
     # Report Generation
     def generate_compliance_report(self, 
                                  project_data: ThaiProjectData,
@@ -363,7 +319,7 @@ class ThaiMinistryRegulation2566:
         report = []
         report.append("=" * 100)
         report.append("รายงานการตรวจสอบการปฏิบัติตามกฎกระทรวง พ.ศ. 2566")
-        report.append("Ministry Regulation B.E. 2566 Compliance Report")
+        report.append("Ministry Regulation B.E. 2566 PRELIMINARY AUDIT (NOT VERIFIED)")
         report.append("=" * 100)
         
         # Header information
@@ -425,7 +381,9 @@ class ThaiMinistryRegulation2566:
         report.append(f"ผ่านการตรวจสอบ/Compliant: {compliant_count}/{total_count}")
         report.append(f"เปอร์เซ็นต์ที่ผ่าน/Pass Rate: {(compliant_count/total_count)*100:.1f}%")
         
-        overall_status = "ผ่าน/COMPLIANT" if compliant_count == total_count else "ไม่ผ่าน/NON-COMPLIANT"
+        overall_status = "ยังไม่ผ่านการตรวจรับรอง / NOT VERIFIED"
+        report.append("Project compliance is NOT certified by this library, "
+                      "regardless of checklist scores.")
         report.append(f"สถานะโดยรวม/Overall Status: {overall_status}")
         
         report.append("")

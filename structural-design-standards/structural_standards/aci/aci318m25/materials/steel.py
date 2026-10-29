@@ -115,18 +115,14 @@ class ACI318M25Steel(SteelMaterial):
         self._validate_aci_requirements()
     
     def _validate_aci_requirements(self) -> None:
-        """Validate inputs according to ACI 318M-25 requirements"""
-        # ACI 318M-25 Section 20.2.2.1 - minimum requirements
-        if self.fy < 280.0:
-            raise ValueError("ACI 318M-25: Minimum fy is 280 MPa for reinforcement")
-        
-        if self.fy > 550.0:
-            raise ValueError("ACI 318M-25: Maximum fy is 550 MPa (Section 20.2.2.1)")
-        
-        # Check fu/fy ratio
-        if self.fu / self.fy < 1.25:
-            raise ValueError("ACI 318M-25: fu/fy ratio must be ≥ 1.25")
-    
+        """Structural steel != rebar: A36 fy=250MPa is an allowed steel grade.
+
+        Steel member design still requires the applicable structural steel code.
+        """
+        if (not math.isfinite(self.fy) or not math.isfinite(self.fu)
+                or self.fy <= 0 or self.fu < self.fy):
+            raise ValueError("Structural steel must have finite Fu >= Fy > 0")
+
     def elastic_modulus(self) -> float:
         """
         Get elastic modulus per ACI 318M-25
@@ -163,100 +159,63 @@ class ACI318M25Steel(SteelMaterial):
         
         return factors
     
-    def calculate_development_length(self, 
-                                   bar_diameter: float,
-                                   concrete_strength: float,
-                                   bar_location: str = 'other',
-                                   bar_coating: str = 'uncoated') -> float:
+    def calculate_development_length(
+            self, bar_diameter: float, concrete_strength: float,
+            bar_location: str = "other",
+            bar_coating: str = "uncoated") -> float:
+        """Disabled: previous implementation assumed max confinement=2.5.
+
+        (cb+Ktr)/db=2.5 is an UPPER LIMIT, not a conservative assumed
+        input. Without cover/spacing and transverse details the answer could
+        dangerously UNDERESTIMATE required anchorage.
         """
-        Calculate development length per ACI 318M-25 Section 25.4
-        
-        Parameters:
-        -----------
-        bar_diameter : float
-            Nominal bar diameter (mm)
-        concrete_strength : float
-            Concrete compressive strength f'c (MPa)
-        bar_location : str
-            'top' or 'other'
-        bar_coating : str
-            'uncoated' or 'epoxy'
-            
-        Returns:
-        --------
-        float
-            Development length (mm)
+        raise NotImplementedError(
+            "ACI 318-25 ld NOT VERIFIED: provide actual bar center cover, "
+            "center spacing, confinement reinforcement, concrete density, "
+            "coating, grade and bar position; no assumed maximum confinement."
+        )
+
+    @staticmethod
+    def evaluate_development_expression_si(
+            fy_mpa: float, fc_mpa: float, db_mm: float,
+            cb_mm: float, ktr_mm: float, lambda_factor: float,
+            psi_t: float, psi_e: float, psi_s: float,
+            psi_g: float) -> Dict[str, float]:
+        """Dimensioned SI evaluation of fully EXPLICIT GENERAL ld expression.
+
+        This arithmetic helper is NOT ACI code compliance: all psi modifiers,
+        their applicability, the chosen edition, the confinement index and
+        required minimum length must be externally verified. It does NOT
+        choose any of those values. Per general equation denominator 1.1.
         """
-        # ACI 318M-25 Eq. 25.4.2.3a for deformed bars in tension
-        # ld = (fy * ψt * ψe * ψs * λ * db) / (25 * √f'c * (cb + Ktr)/db)
-        
-        factors = self.get_development_length_factors()
-        
-        # Modification factors
-        psi_t = factors['bar_location_top'] if bar_location == 'top' else factors['bar_location_other']
-        psi_e = 1.5 if bar_coating == 'epoxy' else 1.0
-        psi_s = 0.8 if bar_diameter <= 19.0 else 1.0  # For 19M and smaller bars
-        lambda_factor = 1.0  # For normal weight concrete
-        
-        # Simplified calculation (conservative - assumes minimum cover)
-        # For detailed calculation, cover and spacing should be considered
-        cb_ktr_db = 2.5  # Conservative assumption
-        
-        ld = (self.fy * psi_t * psi_e * psi_s * lambda_factor * bar_diameter) / \
-             (25 * math.sqrt(concrete_strength) * cb_ktr_db)
-        
-        # Minimum development length
-        ld_min = max(300.0, 8 * bar_diameter)  # ACI 318M-25 Section 25.4.2.1
-        
-        return max(ld, ld_min)
-    
-    def get_splice_length(self, 
-                         bar_diameter: float,
+        values={"fy":fy_mpa,"fc":fc_mpa,"db":db_mm,"cb":cb_mm,
+                "Ktr":ktr_mm,"lambda":lambda_factor,"psi_t":psi_t,
+                "psi_e":psi_e,"psi_s":psi_s,"psi_g":psi_g}
+        if any(not math.isfinite(v) for v in values.values()):
+            raise ValueError("All anchorage variables must be finite")
+        if any(v <= 0 for k,v in values.items() if k not in ("Ktr",)):
+            raise ValueError("All non-Ktr anchorage variables must be positive")
+        if ktr_mm < 0:
+            raise ValueError("Ktr must be nonnegative mm")
+        confinement_ratio=min((cb_mm+ktr_mm)/db_mm,2.5)
+        ld=fy_mpa*psi_t*psi_e*psi_s*psi_g*db_mm / (
+            1.1*lambda_factor*math.sqrt(fc_mpa)*confinement_ratio)
+        return {
+            "general_expression_length_mm": ld,
+            "confinement_ratio_capped": confinement_ratio,
+            "not_code_compliant_without_detail_checks": True,
+        }
+
+    def get_splice_length(self, bar_diameter: float,
                          concrete_strength: float,
-                         splice_type: str = 'tension') -> float:
-        """
-        Calculate splice length per ACI 318M-25 Chapter 25
-        
-        Parameters:
-        -----------
-        bar_diameter : float
-            Nominal bar diameter (mm)
-        concrete_strength : float
-            Concrete compressive strength f'c (MPa)
-        splice_type : str
-            'tension' or 'compression'
-            
-        Returns:
-        --------
-        float
-            Splice length (mm)
-        """
-        if splice_type == 'tension':
-            # ACI 318M-25 Section 25.5.2 - Tension lap splices
-            ld = self.calculate_development_length(bar_diameter, concrete_strength)
-            
-            # Class A splice (typical for most applications)
-            ls = 1.0 * ld
-            
-            # Minimum tension splice length
-            ls_min = max(300.0, 12 * bar_diameter)
-            
-        else:  # compression
-            # ACI 318M-25 Section 25.5.5 - Compression lap splices
-            ld = self.calculate_development_length(bar_diameter, concrete_strength)
-            
-            # Compression splice length
-            ls = 0.071 * self.fy * bar_diameter / math.sqrt(concrete_strength)
-            
-            # But not less than 0.0044 * fy * db for fy ≤ 420 MPa
-            if self.fy <= 420.0:
-                ls = max(ls, 0.0044 * self.fy * bar_diameter)
-            
-            # Minimum compression splice length
-            ls_min = 200.0
-        
-        return max(ls, ls_min)
-    
+                         splice_type: str = "tension") -> float:
+        """No automatic Class A lap or unsupported compression-splice equation."""
+        raise NotImplementedError(
+            "ACI lap splice NOT VERIFIED: Class A/B applicability, bar continuity "
+            "and spacing, tension/compression state, cover/confinement and "
+            "seismic requirements must be specified."
+        )
+
     def get_design_properties(self) -> Dict[str, float]:
         """
         Get comprehensive design properties for ACI 318M-25
@@ -388,51 +347,24 @@ class ACI318M25ReinforcementSteel(ReinforcementSteel):
         return self.bar_properties['mass']
     
     def get_minimum_bend_diameter(self, bend_angle: float = 90.0) -> float:
+        """ACI longitudinal STANDARD hook bend; not ties/seismic hooks.
+
+        #3-#8: 6db; #9-#11: 8db; #14-#18: 10db.
+        Extension length must be checked separately.
         """
-        Get minimum bend diameter per ACI 318M-25 Section 25.3.2
-        
-        Parameters:
-        -----------
-        bend_angle : float
-            Bend angle in degrees (90°, 135°, 180°)
-            
-        Returns:
-        --------
-        float
-            Minimum bend diameter (mm)
-        """
+        if bend_angle not in (90.0, 180.0):
+            raise NotImplementedError("Tie/seismic hook bend needs its own rule")
         db = self.bar_diameter()
-        
-        # ACI 318M-25 Table 25.3.2
-        if db <= 25.0:  # ≤ 25M bars
-            if bend_angle <= 90.0:
-                return 6 * db
-            else:  # 135° and 180° bends
-                return 6 * db
-        else:  # > 25M bars
-            if bend_angle <= 90.0:
-                return 8 * db
-            else:  # 135° and 180° bends
-                return 10 * db
-    
+        if db <= 25.4:
+            return 6 * db
+        elif db <= 35.8:
+            return 8 * db
+        return 10 * db
+
     def get_maximum_spacing(self, member_thickness: float) -> float:
-        """
-        Get maximum spacing per ACI 318M-25 Section 7.6.5
-        
-        Parameters:
-        -----------
-        member_thickness : float
-            Member thickness (mm)
-            
-        Returns:
-        --------
-        float
-            Maximum spacing (mm)
-        """
-        # ACI 318M-25 Section 7.6.5.1 for slabs
-        # Lesser of 3h or 500 mm
-        return min(3 * member_thickness, 500.0)
-    
+        """No universal ACI max spacing without slab type and reinforcement role."""
+        raise NotImplementedError("Spacing requires slab system, layer, cover and design checks")
+
     def calculate_area_per_meter(self, spacing: float) -> float:
         """
         Calculate reinforcement area per meter width
@@ -447,6 +379,8 @@ class ACI318M25ReinforcementSteel(ReinforcementSteel):
         float
             Area per meter (mm²/m)
         """
+        if not math.isfinite(spacing) or spacing <= 0:
+            raise ValueError("Spacing must be a finite positive mm value")
         return (self.bar_area() * 1000.0) / spacing
     
     def get_design_properties(self) -> Dict[str, float]:

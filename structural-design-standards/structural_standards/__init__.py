@@ -29,5 +29,3 @@ def get_available_standards():
         'aci': 'American Concrete Institute Standards',
         'thai': 'Thai Building Code Standards'
     }
-
-print(f"📚 Structural Design Standards Library v{__version__} loaded")
