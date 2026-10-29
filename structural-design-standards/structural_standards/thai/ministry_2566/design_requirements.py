@@ -304,52 +304,14 @@ class ThaiMinistryDesignRequirements:
             }
         }
     
-    def get_concrete_cover(self, 
-                          element_type: ThaiElementType, 
-                          environment: ThaiEnvironmentType) -> Optional[ThaiCoverRequirement]:
-        """
-        Get required concrete cover per Ministry Regulation B.E. 2566
-        
-        Parameters:
-        -----------
-        element_type : ThaiElementType
-            Type of structural element
-        environment : ThaiEnvironmentType
-            Environmental condition
-            
-        Returns:
-        --------
-        Optional[ThaiCoverRequirement]
-            Cover requirement if found
-        """
-        for req in self.cover_requirements:
-            if req.element_type == element_type and req.environment == environment:
-                return req
-        return None
-    
-    def get_deflection_limit(self, 
-                           support_type: ThaiSupportType, 
-                           load_duration: str = "immediate") -> Optional[ThaiDeflectionLimit]:
-        """
-        Get deflection limit per Ministry Regulation B.E. 2566
-        
-        Parameters:
-        -----------
-        support_type : ThaiSupportType
-            Support condition
-        load_duration : str
-            "immediate" or "long_term"
-            
-        Returns:
-        --------
-        Optional[ThaiDeflectionLimit]
-            Deflection limit if found
-        """
-        for limit in self.deflection_limits:
-            if limit.support_type == support_type and limit.load_duration == load_duration:
-                return limit
-        return None
-    
+    def get_concrete_cover(self, *args, **kwargs):
+        """Unverified generic Thai reference table must not certify a project."""
+        raise NotImplementedError("Thai cover requires governing material/design standard, exposure, member and bar geometry")
+
+    def get_deflection_limit(self, *args, **kwargs):
+        """Unverified generic Thai reference table must not certify a project."""
+        raise NotImplementedError("Thai deflection limit depends on load type, occupancy, nonstructural damage and code edition")
+
     def check_deflection_compliance(
             self, actual_deflection: float, span_length: float,
             support_type: ThaiSupportType,
@@ -365,26 +327,10 @@ class ThaiMinistryDesignRequirements:
             "serviceability load case, member stiffness and limit states."
         )
 
-    def get_construction_tolerance(self, component: str, parameter: str) -> Optional[Dict[str, Any]]:
-        """
-        Get construction tolerance for specific component and parameter
-        
-        Parameters:
-        -----------
-        component : str
-            Component type (e.g., 'dimensional_tolerances', 'reinforcement_tolerances')
-        parameter : str
-            Parameter name
-            
-        Returns:
-        --------
-        Optional[Dict[str, Any]]
-            Tolerance specification if found
-        """
-        if component in self.construction_tolerances:
-            return self.construction_tolerances[component].get(parameter)
-        return None
-    
+    def get_construction_tolerance(self, *args, **kwargs):
+        """Unverified generic Thai reference table must not certify a project."""
+        raise NotImplementedError("Thai construction tolerance requires the applicable approved specification, not generic assumptions")
+
     def validate_concrete_mix(self, *args, **kwargs) -> Dict[str, Any]:
         """No compliant concrete mix from a few blanket W/C and slump checks."""
         raise NotImplementedError(
@@ -394,82 +340,9 @@ class ThaiMinistryDesignRequirements:
         )
 
     def generate_design_summary(self, project_data: Dict[str, Any]) -> str:
-        """
-        Generate design requirements summary
-        
-        Parameters:
-        -----------
-        project_data : Dict[str, Any]
-            Project data dictionary
-            
-        Returns:
-        --------
-        str
-            Formatted design summary
-        """
-        summary = []
-        summary.append("=" * 80)
-        summary.append("สรุปข้อกำหนดการออกแบบตามกฎกระทรวง พ.ศ. 2566")
-        summary.append("Design Requirements Summary - Ministry Regulation B.E. 2566")
-        summary.append("=" * 80)
-        
-        # Project information
-        if 'project_name' in project_data:
-            summary.append(f"โครงการ/Project: {project_data['project_name']}")
-        
-        summary.append("")
-        
-        # Cover requirements
-        summary.append("1. ความหนาคอนกรีตปิด (Concrete Cover Requirements)")
-        summary.append("-" * 60)
-        
-        environments = [ThaiEnvironmentType.NORMAL, ThaiEnvironmentType.AGGRESSIVE, ThaiEnvironmentType.MARINE]
-        elements = [ThaiElementType.SLAB, ThaiElementType.BEAM, ThaiElementType.COLUMN, ThaiElementType.FOUNDATION]
-        
-        for env in environments:
-            env_name = {
-                ThaiEnvironmentType.NORMAL: "ปกติ/Normal",
-                ThaiEnvironmentType.AGGRESSIVE: "รุนแรง/Aggressive", 
-                ThaiEnvironmentType.MARINE: "ทางทะเล/Marine"
-            }[env]
-            
-            summary.append(f"\nสภาพแวดล้อม {env_name}:")
-            for elem in elements:
-                cover_req = self.get_concrete_cover(elem, env)
-                if cover_req:
-                    elem_name = {
-                        ThaiElementType.SLAB: "แผ่นพื้น/Slab",
-                        ThaiElementType.BEAM: "คาน/Beam",
-                        ThaiElementType.COLUMN: "เสา/Column",
-                        ThaiElementType.FOUNDATION: "ฐานราก/Foundation"
-                    }[elem]
-                    summary.append(f"  {elem_name}: {cover_req.cover_mm:.0f} mm")
-        
-        # Deflection limits
-        summary.append(f"\n2. ขีดจำกัดการโก่งตัว (Deflection Limits)")
-        summary.append("-" * 60)
-        
-        support_types = [ThaiSupportType.SIMPLY_SUPPORTED, ThaiSupportType.CONTINUOUS, ThaiSupportType.CANTILEVER]
-        durations = ["immediate", "long_term"]
-        
-        for duration in durations:
-            duration_name = "ทันที/Immediate" if duration == "immediate" else "ระยะยาว/Long-term"
-            summary.append(f"\n{duration_name}:")
-            
-            for support in support_types:
-                limit = self.get_deflection_limit(support, duration)
-                if limit:
-                    support_name = {
-                        ThaiSupportType.SIMPLY_SUPPORTED: "รองรับแบบง่าย/Simply Supported",
-                        ThaiSupportType.CONTINUOUS: "ต่อเนื่อง/Continuous",
-                        ThaiSupportType.CANTILEVER: "จำยื่น/Cantilever"
-                    }[support]
-                    summary.append(f"  {support_name}: L/{limit.limit_ratio}")
-        
-        summary.append("")
-        summary.append("=" * 80)
-        summary.append("หมายเหตุ: ข้อกำหนดตามกฎกระทรวง พ.ศ. 2566")
-        summary.append("Note: Requirements per Ministry Regulation B.E. 2566")
-        summary.append("=" * 80)
-        
-        return "\n".join(summary)
+        """Reject unverified cover and deflection tables in a code-looking report."""
+        raise NotImplementedError(
+            "Full Thai design summary NOT VERIFIED: cover, deflection, "
+            "quality control and construction tolerances require the approved "
+            "governing code, project specifications and actual dimensions."
+        )
