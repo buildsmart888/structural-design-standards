@@ -145,120 +145,24 @@ class ACI318M25DiaphragmDesign(MemberDesign):
         self.Es = reinforcement.elastic_modulus()
         self.Ec = concrete.elastic_modulus()
     
-    def design(self,
-               geometry: DiaphragmGeometry,
-               loads: DiaphragmLoads,
-               diaphragm_type: DiaphragmType = DiaphragmType.CAST_IN_PLACE,
-               behavior: DiaphragmBehavior = DiaphragmBehavior.RIGID) -> DesignResult:
-        """
-        Complete diaphragm design according to ACI 318M-25
-        
-        Parameters:
-        -----------
-        geometry : DiaphragmGeometry
-            Diaphragm geometry
-        loads : DiaphragmLoads
-            Applied loads
-        diaphragm_type : DiaphragmType
-            Type of diaphragm construction
-        behavior : DiaphragmBehavior
-            Expected diaphragm behavior
-            
-        Returns:
-        --------
-        DesignResult
-            Complete design results
-        """
-        result = DesignResult(
+    def design(self, *args, **kwargs) -> DesignResult:
+        """Fail closed: no complete diaphragm design can be certified."""
+        return DesignResult(
             member_type="diaphragm",
-            design_method="ACI 318M-25",
+            design_method="ACI 318M-25 NOT VERIFIED",
             overall_status=DesignStatus.NOT_CHECKED,
-            utilization_ratio=0.0
+            utilization_ratio=float("inf"),
+            warnings=["diaphragm analysis, reinforcement, anchorage, "
+                      "detailing, stability and serviceability are NOT VERIFIED. "
+                      "Do not treat preliminary formulas as design checks."],
         )
-        
-        try:
-            # Validate inputs
-            self._validate_inputs(geometry, loads)
-            
-            # Design diaphragm based on type
-            if diaphragm_type == DiaphragmType.CAST_IN_PLACE:
-                self._design_cast_in_place_diaphragm(geometry, loads, behavior, result)
-            elif diaphragm_type == DiaphragmType.PRECAST:
-                self._design_precast_diaphragm(geometry, loads, behavior, result)
-            else:
-                self._design_composite_diaphragm(geometry, loads, behavior, result)
-            
-            # Perform strength checks
-            strength_checks = self.check_strength(geometry, loads, diaphragm_type, behavior)
-            for check in strength_checks:
-                result.add_strength_check(check)
-            
-            # Perform serviceability checks
-            serviceability_checks = self.check_serviceability(geometry, loads, behavior)
-            for check in serviceability_checks:
-                result.add_serviceability_check(check)
-            
-            # Perform detailing checks
-            detailing_checks = self._check_detailing_requirements(geometry, diaphragm_type)
-            for check in detailing_checks:
-                result.add_detailing_check(check)
-            
-            # Determine overall status
-            result.utilization_ratio = result.get_critical_ratio()
-            result.overall_status = DesignStatus.PASS if result.is_adequate() else DesignStatus.FAIL
-            
-        except Exception as e:
-            result.overall_status = DesignStatus.FAIL
-            result.warnings.append(f"Design error: {str(e)}")
-        
-        return result
-    
-    def check_strength(self,
-                      geometry: DiaphragmGeometry,
-                      loads: DiaphragmLoads,
-                      diaphragm_type: DiaphragmType,
-                      behavior: DiaphragmBehavior) -> List[DesignCheck]:
-        """Check strength requirements according to ACI 318M-25"""
-        
-        checks = []
-        
-        # In-plane shear strength check
-        check = self._check_in_plane_shear_strength(geometry, loads, diaphragm_type)
-        checks.append(check)
-        
-        # Chord force check
-        check = self._check_chord_force_capacity(geometry, loads)
-        checks.append(check)
-        
-        # Collector force check
-        check = self._check_collector_force_capacity(geometry, loads)
-        checks.append(check)
-        
-        # Connection strength check (for precast)
-        if diaphragm_type in [DiaphragmType.PRECAST, DiaphragmType.COMPOSITE]:
-            check = self._check_connection_strength(geometry, loads)
-            checks.append(check)
-        
-        return checks
-    
-    def check_serviceability(self,
-                           geometry: DiaphragmGeometry,
-                           loads: DiaphragmLoads,
-                           behavior: DiaphragmBehavior) -> List[DesignCheck]:
-        """Check serviceability requirements"""
-        
-        checks = []
-        
-        # Deflection check
-        check = self._check_diaphragm_deflection(geometry, loads, behavior)
-        checks.append(check)
-        
-        # Aspect ratio check
-        check = self._check_aspect_ratio(geometry)
-        checks.append(check)
-        
-        return checks
-    
+
+    def check_strength(self, *args, **kwargs) -> List[DesignCheck]:
+        raise NotImplementedError("diaphragm strength model NOT VERIFIED")
+
+    def check_serviceability(self, *args, **kwargs) -> List[DesignCheck]:
+        raise NotImplementedError("diaphragm serviceability model NOT VERIFIED")
+
     def _design_cast_in_place_diaphragm(self, geometry: DiaphragmGeometry, loads: DiaphragmLoads, 
                                       behavior: DiaphragmBehavior, result: DesignResult) -> None:
         """Design cast-in-place concrete diaphragm"""
