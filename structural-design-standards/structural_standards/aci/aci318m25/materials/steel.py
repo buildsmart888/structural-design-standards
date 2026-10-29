@@ -159,108 +159,63 @@ class ACI318M25Steel(SteelMaterial):
         
         return factors
     
-    def calculate_development_length(self, 
-                                   bar_diameter: float,
-                                   concrete_strength: float,
-                                   bar_location: str = 'other',
-                                   bar_coating: str = 'uncoated') -> float:
+    def calculate_development_length(
+            self, bar_diameter: float, concrete_strength: float,
+            bar_location: str = "other",
+            bar_coating: str = "uncoated") -> float:
+        """Disabled: previous implementation assumed max confinement=2.5.
+
+        (cb+Ktr)/db=2.5 is an UPPER LIMIT, not a conservative assumed
+        input. Without cover/spacing and transverse details the answer could
+        dangerously UNDERESTIMATE required anchorage.
         """
-        Calculate development length per ACI 318M-25 Section 25.4
-        
-        Parameters:
-        -----------
-        bar_diameter : float
-            Nominal bar diameter (mm)
-        concrete_strength : float
-            Concrete compressive strength f'c (MPa)
-        bar_location : str
-            'top' or 'other'
-        bar_coating : str
-            'uncoated' or 'epoxy'
-            
-        Returns:
-        --------
-        float
-            Development length (mm)
+        raise NotImplementedError(
+            "ACI 318-25 ld NOT VERIFIED: provide actual bar center cover, "
+            "center spacing, confinement reinforcement, concrete density, "
+            "coating, grade and bar position; no assumed maximum confinement."
+        )
+
+    @staticmethod
+    def evaluate_development_expression_si(
+            fy_mpa: float, fc_mpa: float, db_mm: float,
+            cb_mm: float, ktr_mm: float, lambda_factor: float,
+            psi_t: float, psi_e: float, psi_s: float,
+            psi_g: float) -> Dict[str, float]:
+        """Dimensioned SI evaluation of fully EXPLICIT GENERAL ld expression.
+
+        This arithmetic helper is NOT ACI code compliance: all psi modifiers,
+        their applicability, the chosen edition, the confinement index and
+        required minimum length must be externally verified. It does NOT
+        choose any of those values. Per general equation denominator 1.1.
         """
-        # ACI 318M-25 Eq. 25.4.2.4 (SI units):
-        #   ld = (1/1.1) * fy/(λ·√f'c) * ψt·ψe·ψg * db / ((cb + Ktr)/db)
-        # λ is a divisor: lightweight concrete lengthens ld (Table 25.4.2.5).
-        # The former bar-size factor ψs was replaced by the reinforcement
-        # grade factor ψg; ψs is conservatively not applied here.
-        
-        factors = self.get_development_length_factors()
-        
-        # Modification factors
-        psi_t = factors['bar_location_top'] if bar_location == 'top' else factors['bar_location_other']
-        psi_e = 1.5 if bar_coating == 'epoxy' else 1.0
-        if self.fy <= 420.0:
-            psi_g = 1.0      # Grade 280 / Grade 420
-        elif self.fy <= 550.0:
-            psi_g = 1.15     # Grade 550
-        else:
-            psi_g = 1.30     # Grade 690
-        lambda_factor = 1.0  # Normalweight concrete; use 0.75 for lightweight
-        
-        # Simplified calculation (conservative - assumes minimum cover)
-        # For detailed calculation, cover and spacing should be considered
-        cb_ktr_db = 2.5  # Upper bound permitted by 25.4.2.4
-        
-        ld = (self.fy * psi_t * psi_e * psi_g * bar_diameter) / \
-             (1.1 * lambda_factor * math.sqrt(concrete_strength) * cb_ktr_db)
-        
-        # Minimum development length
-        ld_min = max(300.0, 8 * bar_diameter)  # ACI 318M-25 Section 25.4.2.1
-        
-        return max(ld, ld_min)
-    
-    def get_splice_length(self, 
-                         bar_diameter: float,
+        values={"fy":fy_mpa,"fc":fc_mpa,"db":db_mm,"cb":cb_mm,
+                "Ktr":ktr_mm,"lambda":lambda_factor,"psi_t":psi_t,
+                "psi_e":psi_e,"psi_s":psi_s,"psi_g":psi_g}
+        if any(not math.isfinite(v) for v in values.values()):
+            raise ValueError("All anchorage variables must be finite")
+        if any(v <= 0 for k,v in values.items() if k not in ("Ktr",)):
+            raise ValueError("All non-Ktr anchorage variables must be positive")
+        if ktr_mm < 0:
+            raise ValueError("Ktr must be nonnegative mm")
+        confinement_ratio=min((cb_mm+ktr_mm)/db_mm,2.5)
+        ld=fy_mpa*psi_t*psi_e*psi_s*psi_g*db_mm / (
+            1.1*lambda_factor*math.sqrt(fc_mpa)*confinement_ratio)
+        return {
+            "general_expression_length_mm": ld,
+            "confinement_ratio_capped": confinement_ratio,
+            "not_code_compliant_without_detail_checks": True,
+        }
+
+    def get_splice_length(self, bar_diameter: float,
                          concrete_strength: float,
-                         splice_type: str = 'tension') -> float:
-        """
-        Calculate splice length per ACI 318M-25 Chapter 25
-        
-        Parameters:
-        -----------
-        bar_diameter : float
-            Nominal bar diameter (mm)
-        concrete_strength : float
-            Concrete compressive strength f'c (MPa)
-        splice_type : str
-            'tension' or 'compression'
-            
-        Returns:
-        --------
-        float
-            Splice length (mm)
-        """
-        if splice_type == 'tension':
-            # ACI 318M-25 Section 25.5.2 - Tension lap splices
-            ld = self.calculate_development_length(bar_diameter, concrete_strength)
-            
-            # Class A splice (typical for most applications)
-            ls = 1.0 * ld
-            
-            # Minimum tension splice length
-            ls_min = max(300.0, 12 * bar_diameter)
-            
-        else:  # compression
-            # ACI 318M-25 Section 25.5.5 - Compression lap splices
-            ld = self.calculate_development_length(bar_diameter, concrete_strength)
-            
-            # Compression splice length
-            ls = 0.071 * self.fy * bar_diameter / math.sqrt(concrete_strength)
-            
-            # But not less than 0.0044 * fy * db for fy ≤ 420 MPa
-            if self.fy <= 420.0:
-                ls = max(ls, 0.0044 * self.fy * bar_diameter)
-            
-            # Minimum compression splice length
-            ls_min = 200.0
-        
-        return max(ls, ls_min)
-    
+                         splice_type: str = "tension") -> float:
+        """No automatic Class A lap or unsupported compression-splice equation."""
+        raise NotImplementedError(
+            "ACI lap splice NOT VERIFIED: Class A/B applicability, bar continuity "
+            "and spacing, tension/compression state, cover/confinement and "
+            "seismic requirements must be specified."
+        )
+
     def get_design_properties(self) -> Dict[str, float]:
         """
         Get comprehensive design properties for ACI 318M-25
