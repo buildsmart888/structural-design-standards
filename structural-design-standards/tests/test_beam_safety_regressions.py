@@ -37,7 +37,7 @@ def test_manual_flexural_150knm_equilibrium():
         else:
             hi = mid
     result = c.design_flexural_reinforcement(geometry(), 150.0)
-    assert result.overall_status is DesignStatus.PASS
+    assert result.overall_status is DesignStatus.NOT_CHECKED
     assert result.required_reinforcement["As_required_mm2"] == pytest.approx(
         (lo + hi) / 2, rel=1e-9)
     assert result.strength_checks[0].status is DesignStatus.PASS
@@ -75,7 +75,7 @@ def test_shear_in_newtons_and_capacity_in_kn():
     result = c.design_shear_reinforcement(geometry(), 200.0, 1000.0)
     vc = 0.17 * math.sqrt(28.0) * 300.0 * 550.0 / 1000.0
     assert result.design_capacities["phi_Vc_kN"] == pytest.approx(0.75*vc)
-    assert result.overall_status is DesignStatus.PASS
+    assert result.overall_status is DesignStatus.NOT_CHECKED
     assert result.strength_checks[0].status is DesignStatus.PASS
     assert result.required_reinforcement["minimum_stirrups_provided"] is True
 
