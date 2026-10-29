@@ -84,9 +84,9 @@ class ThaiSteel(SteelMaterial):
     THAI_STEEL_GRADES = {
         ThaiSteelGrade.SR24: ThaiSteelProperties(
             grade="SR24",
-            fy_mpa=235.4,
+            fy_mpa=235.3596,  # exact 2400 kgf/cm2 in MPa
             fy_ksc=2400.0,
-            fu_mpa=372.0,
+            fu_mpa=372.6527,  # exact 3800 kgf/cm2 in MPa
             fu_ksc=3800.0,
             steel_type="round",
             surface_condition="plain",
@@ -97,9 +97,9 @@ class ThaiSteel(SteelMaterial):
         
         ThaiSteelGrade.SD40: ThaiSteelProperties(
             grade="SD40", 
-            fy_mpa=392.4,
+            fy_mpa=392.266,  # exact 4000 kgf/cm2 in MPa
             fy_ksc=4000.0,
-            fu_mpa=589.5,
+            fu_mpa=588.399,  # exact 6000 kgf/cm2 in MPa
             fu_ksc=6000.0,
             steel_type="deformed",
             surface_condition="deformed",
@@ -110,9 +110,9 @@ class ThaiSteel(SteelMaterial):
         
         ThaiSteelGrade.SD50: ThaiSteelProperties(
             grade="SD50",
-            fy_mpa=490.5,
+            fy_mpa=490.3325,  # exact 5000 kgf/cm2 in MPa
             fy_ksc=5000.0,
-            fu_mpa=686.7,
+            fu_mpa=686.4655,  # exact 7000 kgf/cm2 in MPa
             fu_ksc=7000.0,
             steel_type="deformed",
             surface_condition="deformed",
@@ -157,7 +157,11 @@ class ThaiSteel(SteelMaterial):
         elif fy is not None:
             validate_positive(fy, "fy")
             if fu is None:
-                fu = fy * 1.5  # Typical assumption
+                raise ValueError(
+                    "Custom Thai steel fy requires measured/specified Fu; "
+                    "an assumed Fu=1.5Fy is not sufficient"
+                )
+            validate_positive(fu, "fu")
             grade = self._determine_grade_from_strength(fy)
         else:
             raise ValueError("Either grade or fy must be provided")
@@ -191,18 +195,14 @@ class ThaiSteel(SteelMaterial):
         raise ValueError(f"Invalid Thai steel grade: {grade}")
     
     def _determine_grade_from_strength(self, fy: float) -> str:
-        """Determine Thai grade from yield strength"""
-        for grade_enum, props in self.THAI_STEEL_GRADES.items():
-            if abs(fy - props.fy_mpa) < 10.0:  # Allow tolerance
+        """Do not silently label custom MPa input as a certified TIS grade."""
+        if not math.isfinite(fy) or fy <= 0:
+            raise ValueError("fy must be finite positive")
+        for props in self.THAI_STEEL_GRADES.values():
+            if math.isclose(fy, props.fy_mpa, rel_tol=0, abs_tol=1e-6):
                 return props.grade
-        
-        # If no exact match, find closest
-        closest_grade = min(
-            self.THAI_STEEL_GRADES.values(),
-            key=lambda p: abs(p.fy_mpa - fy)
-        )
-        return closest_grade.grade
-    
+        return "CUSTOM"
+
     def _get_grade_properties(self) -> Optional[ThaiSteelProperties]:
         """Get properties for current grade"""
         for grade_enum, props in self.THAI_STEEL_GRADES.items():
@@ -424,6 +424,11 @@ class ThaiReinforcementSteel(ReinforcementSteel):
         if steel_grade is None:
             steel_grade = self.rebar_properties.typical_grade
         
+        if self.rebar_properties.surface_type == "round" and steel_grade.upper() != "SR24":
+            raise ValueError("Round RB bar requires SR24, not a deformed-bar grade")
+        if self.rebar_properties.surface_type == "deformed" and steel_grade.upper() not in ("SD40", "SD50"):
+            raise ValueError("Deformed DB bar cannot use the plain-bar SR24 grade")
+
         # Get steel properties
         thai_steel = ThaiSteel(grade=steel_grade)
         
