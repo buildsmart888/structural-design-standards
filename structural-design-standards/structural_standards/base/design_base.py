@@ -74,6 +74,9 @@ class DesignResult:
     # Additional information
     warnings: List[str] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
+    # Full-member acceptance requires explicit audited coverage of EVERY limit
+    # state. This defaults False for all experimental and legacy calculators.
+    all_required_checks_performed: bool = False
     
     def add_strength_check(self, check: DesignCheck) -> None:
         """Add a strength design check"""
@@ -111,7 +114,8 @@ class DesignResult:
         passing one isolated check does not certify the complete member.
         """
         all_checks = self.strength_checks + self.serviceability_checks + self.detailing_checks
-        return bool(all_checks) and all(check.status is DesignStatus.PASS for check in all_checks)
+        return (self.all_required_checks_performed and bool(all_checks)
+                and all(check.status is DesignStatus.PASS for check in all_checks))
 
 class StructuralMember(ABC):
     """
