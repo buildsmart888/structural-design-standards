@@ -31,7 +31,8 @@ class ACI318M25Concrete(ConcreteMaterial):
     
     # Standard concrete strength classes - ACI 318M-25
     STANDARD_STRENGTHS = {
-        'FC14': 14.0,    # 14 MPa
+        # FC14 is excluded: general reinforced structural concrete minimum
+        # validation rejects 14 MPa; no misleading selectable grade.
         'FC17': 17.0,    # 17 MPa  
         'FC21': 21.0,    # 21 MPa
         'FC28': 28.0,    # 28 MPa (most common)
