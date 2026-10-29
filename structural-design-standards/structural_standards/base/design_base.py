@@ -104,9 +104,14 @@ class DesignResult:
         return max(all_checks, key=lambda x: x.ratio)
     
     def is_adequate(self) -> bool:
-        """Check if design is adequate (all checks pass)"""
+        """Fail closed: an empty or incomplete list of checks is NOT adequate.
+
+        WARNING and NOT_CHECKED are not PASS. Subsystems must explicitly set
+        their overall_status to NOT_CHECKED when required checks are absent;
+        passing one isolated check does not certify the complete member.
+        """
         all_checks = self.strength_checks + self.serviceability_checks + self.detailing_checks
-        return all(check.status in [DesignStatus.PASS, DesignStatus.WARNING] for check in all_checks)
+        return bool(all_checks) and all(check.status is DesignStatus.PASS for check in all_checks)
 
 class StructuralMember(ABC):
     """
@@ -216,14 +221,24 @@ class MemberDesign(ABC):
         DesignCheck
             Design check result
         """
+        if (not math.isfinite(actual_value) or not math.isfinite(limit_value)
+                or actual_value < 0 or limit_value <= 0):
+            return DesignCheck(
+                name=name, status=DesignStatus.NOT_CHECKED,
+                value=actual_value, limit=limit_value, ratio=float('inf'),
+                units=units, description="Invalid, absent or nonpositive check input: "
+                + description, code_reference=code_reference,
+            )
+
         if is_lower_bound:
-            # Actual value should be >= limit (e.g., provided area >= required area)
-            ratio = actual_value / limit_value if limit_value > 0 else float('inf')
-            status = DesignStatus.PASS if actual_value >= limit_value else DesignStatus.FAIL
+            # Required / provided, the SAME utilization convention as upper bounds.
+            ratio = limit_value / actual_value if actual_value > 0 else float('inf')
+            status = (DesignStatus.PASS if actual_value >= limit_value
+                      else DesignStatus.FAIL)
         else:
-            # Actual value should be <= limit (e.g., stress <= allowable stress)
-            ratio = actual_value / limit_value if limit_value > 0 else float('inf')
-            status = DesignStatus.PASS if actual_value <= limit_value else DesignStatus.FAIL
+            ratio = actual_value / limit_value
+            status = (DesignStatus.PASS if actual_value <= limit_value
+                      else DesignStatus.FAIL)
         
         return DesignCheck(
             name=name,
