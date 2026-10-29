@@ -121,439 +121,174 @@ class ACI318M25BeamDesign(BeamDesign):
         self.epsilon_cu = 0.003  # Ultimate concrete strain
         self.epsilon_ty = self.fy / self.Es  # Yield strain of steel
         
-    def design_flexural_reinforcement(self,
-                                    geometry: BeamGeometry,
+def design_flexural_reinforcement(self, geometry: BeamGeometry,
                                     moment_ultimate: float,
                                     moment_service: Optional[float] = None) -> DesignResult:
+        """Rectangular singly-reinforced, tension-controlled SECTIONAL flexure.
+
+        b, h, d in mm, fc' and fy in MPa, Mu in kN.m, As in mm2.
+        ACI 318M-25 9.3.3, 9.6.1, 21.2.2, 22.2. Not a complete beam design.
         """
-        Design flexural reinforcement for beam
-        
-        Parameters:
-        -----------
-        geometry : BeamGeometry
-            Beam geometry
-        moment_ultimate : float
-            Ultimate moment (kN⋅m)
-        moment_service : float, optional
-            Service moment for crack control (kN⋅m)
-            
-        Returns:
-        --------
-        DesignResult
-            Design results with required reinforcement
-        """
-        # Convert to consistent units (N⋅mm)
-        Mu = moment_ultimate * 1e6  # kN⋅m to N⋅mm
-        
-        b = geometry.width  # mm
-        h = geometry.height  # mm
-        d = geometry.effective_depth  # mm
-        
-        # Validate inputs
-        validate_positive(Mu, "Ultimate moment")
-        validate_positive(b, "Beam width")
-        validate_positive(h, "Beam height")
-        validate_positive(d, "Effective depth")
-        
-        # Required moment strength
-        Mn_required = Mu / self.phi_flexure  # N⋅mm
-        
-        # Calculate required reinforcement
-        # Using simplified rectangular stress block (ACI 318M-25 Section 22.2)
-        
-        # Assume tension-controlled section initially
+        validate_positive(moment_ultimate, "Factored moment magnitude (kN.m)")
+        b, h, d = geometry.width, geometry.height, geometry.effective_depth
+        for name, v in (("b", b), ("h", h), ("d", d)):
+            validate_positive(v, name)
+        if d >= h:
+            raise ValueError("Effective depth must be smaller than beam height")
+        Mu = moment_ultimate * 1e6
         phi = self.phi_flexure
-        
-        # Calculate reinforcement ratio limits
-        rho_min = self.minimum_flexural_reinforcement_ratio(b, d)
-        rho_max = self.maximum_flexural_reinforcement_ratio()
-        
-        # Solve for required steel area using quadratic formula
-        # Mn = As⋅fy⋅(d - a/2) where a = As⋅fy/(0.85⋅fc⋅b)
-        beta1 = self.concrete.beta1()
-        
-        # Quadratic equation coefficients
-        # 0.5⋅As²⋅fy/(0.85⋅fc⋅b) - As⋅fy⋅d + Mn = 0
-        a_coeff = 0.5 * self.fy / (0.85 * self.fc * b)
-        b_coeff = -self.fy * d
-        c_coeff = Mn_required
-        
-        # Solve quadratic equation
-        discriminant = b_coeff**2 - 4*a_coeff*c_coeff
-        
-        if discriminant < 0:
-            # Cannot solve with single layer tension reinforcement
-            As_required = None
-            feasible = False
-            warnings = ["Required moment exceeds capacity with single tension reinforcement"]
+        As_min = self.minimum_flexural_reinforcement_ratio(b, d) * b * d
+        As_max = self.maximum_flexural_reinforcement_ratio() * b * d
+        if As_min > As_max:
+            raise ValueError("Minimum steel exceeds tension-controlled limit")
+        # Mn = As*fy*d - (As**2 * fy**2)/(2*0.85*fc'*b).
+        a = self.fy**2 / (2 * 0.85 * self.fc * b)
+        bb = self.fy * d
+        target_Mn = Mu / phi
+        disc = bb**2 - 4 * a * target_Mn
+        As_trial = 2 * target_Mn / (bb + math.sqrt(disc)) if disc >= 0 else None
+        max_phiMn = self.flexural_capacity(b, d, As_max, phi)
+        feasible = (As_trial is not None
+                    and As_trial <= As_max * (1 + 1e-9)
+                    and Mu <= max_phiMn * (1 + 1e-9))
+        warnings = []
+        if feasible:
+            As_req = max(As_trial, As_min)
+            if As_trial < As_min:
+                warnings.append("Minimum longitudinal steel controls")
+            As_checked = As_req
         else:
-            As_required = (-b_coeff - math.sqrt(discriminant)) / (2*a_coeff)  # mm²
-            
-            # Check if section is tension-controlled
-            a = As_required * self.fy / (0.85 * self.fc * b)  # mm
-            c = a / beta1  # mm
-            
-            # Strain in extreme tension steel
-            epsilon_t = self.epsilon_cu * (d - c) / c
-            
-            # Check section behavior (Table 21.2.2: epsilon_ty + 0.003)
-            epsilon_t_limit = self.epsilon_ty + 0.003
-            if epsilon_t >= epsilon_t_limit:
-                # Tension-controlled
-                phi_actual = self.phi_flexure
-                section_type = "tension-controlled"
-            elif epsilon_t <= self.epsilon_ty:
-                # Compression-controlled
-                phi_actual = self.phi_compression
-                section_type = "compression-controlled"
-            else:
-                # Transition zone
-                phi_actual = self.phi_compression + (self.phi_flexure - self.phi_compression) * \
-                           (epsilon_t - self.epsilon_ty) / 0.003
-                section_type = "transition"
-            
-            # Check reinforcement ratio limits
-            rho_provided = As_required / (b * d)
-            
-            warnings = []
-            if rho_provided < rho_min:
-                As_required = max(As_required, rho_min * b * d)
-                warnings.append(f"Minimum reinforcement controls: ρ = {rho_min:.4f}")
-            
-            if rho_provided > rho_max:
-                feasible = False
-                warnings.append(f"Exceeds maximum reinforcement ratio: ρ = {rho_max:.4f}")
-            else:
-                feasible = True
-        
-        # Calculate actual capacity with required steel
-        if feasible and As_required:
-            Mn_provided = self.flexural_capacity(b, d, As_required, phi_actual)
-            capacity_ratio = Mn_provided / Mn_required
-        else:
-            Mn_provided = 0
-            capacity_ratio = 0
-        
-        # Create design checks
+            As_req = None
+            As_checked = As_max  # Report limit capacity, NOT a usable design
+            warnings.append("Tension-controlled singly reinforced section is insufficient; "
+                            "increase section or use a separately verified method")
+        phiMn = self.flexural_capacity(b, d, As_checked, phi)
+        utilization = Mu / phiMn if phiMn > 0 else float("inf")
+        ok = feasible and utilization <= 1 + 1e-9
         checks = [
-            DesignCheck(
-                name="Flexural Strength",
-                status=DesignStatus.PASS if Mn_provided >= Mn_required else DesignStatus.FAIL,
-                value=Mn_provided/1e6,
-                limit=Mn_required/1e6,
-                ratio=Mn_provided/Mn_required if Mn_required > 0 else float('inf'),
-                units="kN⋅m",
-                description=f"φMn = {Mn_provided/1e6:.1f} kN⋅m ≥ Mu = {Mu/1e6:.1f} kN⋅m"
-            ),
-            DesignCheck(
-                name="Minimum Reinforcement",
-                status=DesignStatus.PASS if As_required >= rho_min * b * d else DesignStatus.FAIL,
-                value=As_required,
-                limit=rho_min * b * d,
-                ratio=As_required/(rho_min * b * d) if rho_min * b * d > 0 else float('inf'),
-                units="mm²",
-                description=f"As = {As_required:.0f} mm² ≥ As,min = {rho_min * b * d:.0f} mm²"
-            ),
-            DesignCheck(
-                name="Maximum Reinforcement",
-                status=DesignStatus.PASS if rho_provided <= rho_max else DesignStatus.FAIL,
-                value=rho_provided,
-                limit=rho_max,
-                ratio=rho_provided/rho_max if rho_max > 0 else float('inf'),
-                units="-",
-                description=f"ρ = {rho_provided:.4f} ≤ ρ,max = {rho_max:.4f}"
-            )
+            DesignCheck(name="Flexural Strength",
+                        status=DesignStatus.PASS if ok else DesignStatus.FAIL,
+                        value=moment_ultimate, limit=phiMn / 1e6, ratio=utilization,
+                        units="kN.m", code_reference="ACI 318M-25 9.3.3, 22.2"),
+            DesignCheck(name="Minimum Reinforcement",
+                        status=DesignStatus.PASS if As_checked >= As_min else DesignStatus.FAIL,
+                        value=As_checked, limit=As_min,
+                        ratio=As_min / As_checked if As_checked else float("inf"),
+                        units="mm2", code_reference="ACI 318M-25 9.6.1"),
+            DesignCheck(name="Tension-Controlled Maximum Steel",
+                        status=DesignStatus.PASS if feasible else DesignStatus.FAIL,
+                        value=As_checked, limit=As_max,
+                        ratio=As_checked / As_max if As_max else float("inf"),
+                        units="mm2", code_reference="ACI 318M-25 9.3.3, 21.2.2"),
         ]
-        
-        # Results dictionary
-        results = {
-            'As_required_mm2': As_required or 0,
-            'reinforcement_ratio': rho_provided if As_required else 0,
-            'section_type': section_type if feasible else "over-reinforced",
-            'strength_reduction_factor': phi_actual if feasible else 0,
-            'moment_capacity_kNm': Mn_provided / 1e6 if Mn_provided else 0,
-            'capacity_ratio': capacity_ratio,
-            'concrete_strength_MPa': self.fc,
-            'steel_yield_MPa': self.fy,
-            'warnings': warnings
-        }
-        
+        if moment_service is not None:
+            warnings.append("Service cracking/deflection NOT CHECKED; moment_service unused")
         return DesignResult(
-            member_type="beam",
-            design_method="ACI 318M-25 Flexural",
-            overall_status=DesignStatus.PASS if feasible else DesignStatus.FAIL,
-            utilization_ratio=1/capacity_ratio if capacity_ratio > 0 else float('inf'),
-            strength_checks=checks,
-            design_forces={'moment_ultimate': Mu/1e6},
-            design_capacities={'moment_capacity': Mn_provided/1e6 if Mn_provided else 0},
-            required_reinforcement={'As_required_mm2': As_required or 0},
-            warnings=warnings
+            member_type="beam", design_method="ACI 318M-25",
+            overall_status=DesignStatus.PASS if ok else DesignStatus.FAIL,
+            utilization_ratio=utilization, strength_checks=checks[:1],
+            detailing_checks=checks[1:],
+            design_forces={"moment_ultimate_kNm": moment_ultimate},
+            design_capacities={"phi_Mn_kNm": phiMn / 1e6,
+                               "maximum_phi_Mn_kNm": max_phiMn / 1e6},
+            required_reinforcement={"As_required_mm2": As_req,
+                                    "required_steel_area": As_req,
+                                    "As_min_mm2": As_min,
+                                    "As_max_tension_controlled_mm2": As_max},
+            warnings=warnings,
+            notes=["Sectional rectangular flexure only; detailing and serviceability require separate checks."],
         )
-    
-    def design_shear_reinforcement(self,
-                                 geometry: BeamGeometry,
+
+def design_shear_reinforcement(self, geometry: BeamGeometry,
                                  shear_ultimate: float,
                                  longitudinal_steel: float) -> DesignResult:
+        """Preliminary nonprestressed rectangular BEAM shear WITH min stirrups.
+
+        Assumes no torsion, axial load, prestressing or seismic ductility demands.
+        2-leg 10 mm stirrups, fyt = min(rebar fy, 420 MPa). b,d mm, fc' MPa.
+        ACI 318M-25 9.6.3, 9.7.6, 22.5. Cross-width detailing not checked.
         """
-        Design shear reinforcement (stirrups)
-        
-        Parameters:
-        -----------
-        geometry : BeamGeometry
-            Beam geometry
-        shear_ultimate : float
-            Ultimate shear force (kN)
-        longitudinal_steel : float
-            Area of longitudinal tension reinforcement (mm²)
-            
-        Returns:
-        --------
-        DesignResult
-            Shear design results
-        """
-        # Convert to consistent units
-        Vu = shear_ultimate * 1000  # kN to N
-        
-        b = geometry.width  # mm
-        d = geometry.effective_depth  # mm
-        
-        # Validate inputs
-        validate_positive(Vu, "Ultimate shear")
-        validate_positive(longitudinal_steel, "Longitudinal steel area")
-        
-        # Concrete shear strength (ACI 318M-25 Section 22.5)
-        lambda_factor = 1.0  # Normal weight concrete
-        sqrt_fc = math.sqrt(self.fc)  # MPa^0.5
-        
-        # Vc = 0.17⋅λ⋅√fc'⋅bw⋅d  (Table 22.5.5.1(a), SI: MPa·mm·mm = N)
-        Vc = 0.17 * lambda_factor * sqrt_fc * b * d  # N
-        
-        # Design shear strength
-        phi_Vc = self.phi_shear * Vc
-        
-        # Required shear strength from reinforcement
-        Vs_required = max(0, Vu - phi_Vc)  # N
-        
-        # Check if shear reinforcement is required
-        if Vs_required <= 0:
-            # Minimum shear reinforcement (ACI 318M-25 Section 9.6.3)
-            Av_min = self.minimum_shear_reinforcement_area(b)  # mm²
-            s_max = min(d/2, 600)  # mm
-            
-            stirrup_area = Av_min
-            stirrup_spacing = s_max
-            shear_reinforcement_required = False
-            
-        else:
-            # Design shear reinforcement
-            # Vs = Av⋅fy⋅d/s
-            # Therefore: Av/s = Vs/(fy⋅d)
-            
-            Av_over_s_required = Vs_required / (self.fy * d)  # mm²/mm
-            
-            # Assume stirrup size (can be optimized)
-            stirrup_diameter = 10  # mm (DB10)
-            Av_stirrup = 2 * math.pi * (stirrup_diameter/2)**2  # 2-leg stirrup, mm²
-            
-            # Required spacing
-            s_required = Av_stirrup / Av_over_s_required  # mm
-            
-            # Maximum spacing limits (ACI 318M-25 Section 9.6.3)
-            if Vs_required <= 0.33 * sqrt_fc * b * d:  # 25.7.2.1.2
-                s_max = min(d/2, 600)  # mm
-            else:
-                s_max = min(d/4, 300)  # mm
-            
-            stirrup_spacing = min(s_required, s_max)
-            stirrup_area = Av_stirrup
-            shear_reinforcement_required = True
-        
-        # Check maximum shear limit (ACI 318M-25 Section 22.5)
-        Vs_max = 0.66 * sqrt_fc * b * d  # N, 22.5.1.2: Vn ≤ Vc + 0.66√fc' bw d
-        phi_Vs_max = self.phi_shear * Vs_max
-        
-        # Total shear capacity
-        phi_Vn = phi_Vc + min(self.phi_shear * Vs_required / max(Vs_required, 1), phi_Vs_max - phi_Vc)
-        
-        # Design checks
+        validate_positive(shear_ultimate, "Shear demand magnitude (kN)")
+        validate_positive(longitudinal_steel, "Longitudinal steel area (mm2)")
+        b, h, d = geometry.width, geometry.height, geometry.effective_depth
+        for name, v in (("b", b), ("h", h), ("d", d)):
+            validate_positive(v, name)
+        if d >= h:
+            raise ValueError("Effective depth must be smaller than beam height")
+        Vu = shear_ultimate * 1000  # kN -> N
+        phi = self.phi_shear
+        fyt = min(self.fy, 420.0)
+        sqrt_fc = math.sqrt(self.fc)
+        lam = self.concrete.shear_strength_factor()
+        # Vc branch applies ONLY when Av >= Av,min (N = MPa*mm2).
+        Vc = 0.17 * lam * sqrt_fc * b * d
+        Vs_required = max(0.0, Vu / phi - Vc)
+        Vs_max = 0.66 * sqrt_fc * b * d
+        avs_min = self.minimum_shear_reinforcement_area(b, fyt)
+        avs_strength = Vs_required / (fyt * d)
+        avs = max(avs_min, avs_strength)
+        db = 10.0  # mm
+        Av = 2 * math.pi * (db / 2)**2  # two-legged stirrup area, mm2
+        s_max = (min(d / 4, 300.0) if Vs_required > 0.33 * sqrt_fc * b * d
+                 else min(d / 2, 600.0))
+        s = min(Av / avs, s_max)
+        Vs_provided = Av * fyt * d / s
+        phiVn = phi * (Vc + min(Vs_provided, Vs_max))
+        utilization = Vu / phiVn
+        strength_ok = utilization <= 1 + 1e-9 and Vs_required <= Vs_max * (1 + 1e-9)
+        # This 50mm lower bound is a construction screening rule, NOT a code limit.
+        spacing_ok = 50.0 <= s <= s_max + 1e-9
         checks = [
-            DesignCheck("Shear Strength", phi_Vn >= Vu,
-                       f"φVn = {phi_Vn/1000:.1f} kN ≥ Vu = {Vu/1000:.1f} kN"),
-            DesignCheck("Maximum Shear", Vs_required <= Vs_max,
-                       f"Vs = {Vs_required/1000:.1f} kN ≤ Vs,max = {Vs_max/1000:.1f} kN"),
-            DesignCheck("Stirrup Spacing", stirrup_spacing <= s_max,
-                       f"s = {stirrup_spacing:.0f} mm ≤ s,max = {s_max:.0f} mm")
+            DesignCheck(name="Shear Strength",
+                        status=DesignStatus.PASS if strength_ok else DesignStatus.FAIL,
+                        value=shear_ultimate, limit=phiVn / 1000, ratio=utilization,
+                        units="kN", code_reference="ACI 318M-25 22.5"),
+            DesignCheck(name="Max Shear Steel Contribution",
+                        status=DesignStatus.PASS if Vs_required <= Vs_max else DesignStatus.FAIL,
+                        value=Vs_required / 1000, limit=Vs_max / 1000,
+                        ratio=Vs_required / Vs_max, units="kN",
+                        code_reference="ACI 318M-25 22.5"),
+            DesignCheck(name="Preliminary Stirrup Spacing",
+                        status=DesignStatus.PASS if spacing_ok else DesignStatus.FAIL,
+                        value=s, limit=s_max, ratio=s / s_max, units="mm",
+                        code_reference="ACI 318M-25 9.7.6"),
         ]
-        
-        # Results
-        feasible = all(check.passes for check in checks)
-        capacity_ratio = phi_Vn / Vu if Vu > 0 else float('inf')
-        
-        results = {
-            'concrete_shear_kN': phi_Vc / 1000,
-            'steel_shear_required_kN': Vs_required / 1000,
-            'stirrup_area_mm2': stirrup_area,
-            'stirrup_spacing_mm': stirrup_spacing,
-            'shear_capacity_kN': phi_Vn / 1000,
-            'capacity_ratio': capacity_ratio,
-            'shear_reinforcement_required': shear_reinforcement_required,
-            'stirrup_diameter_mm': stirrup_diameter if shear_reinforcement_required else 0
-        }
-        
+        warnings = ["Sectional shear only: torsion, axial forces, seismic detailing, "
+                    "support critical sections and cross-width stirrup layout NOT CHECKED"]
+        if not strength_ok:
+            warnings.append("Section exceeds maximum shear strength")
+        if not spacing_ok:
+            warnings.append("Stirrup spacing below 50 mm constructability screening limit")
         return DesignResult(
-            is_adequate=feasible,
-            capacity_ratio=capacity_ratio,
-            governing_check="Shear Strength",
-            design_details=results,
-            checks=checks
+            member_type="beam", design_method="ACI 318M-25",
+            overall_status=(DesignStatus.PASS if strength_ok and spacing_ok
+                            else DesignStatus.FAIL),
+            utilization_ratio=utilization, strength_checks=checks[:2],
+            detailing_checks=checks[2:],
+            design_forces={"shear_ultimate_kN": shear_ultimate},
+            design_capacities={"phi_Vn_kN": phiVn / 1000,
+                               "phi_Vc_kN": phi * Vc / 1000,
+                               "Vs_max_nominal_kN": Vs_max / 1000},
+            required_reinforcement={"stirrup_diameter_mm": db, "stirrup_legs": 2,
+                                    "stirrup_area_mm2": Av, "stirrup_spacing_mm": s,
+                                    "stirrup_fyt_MPa": fyt,
+                                    "Av_over_s_min_mm2_per_mm": avs_min,
+                                    "Av_over_s_strength_mm2_per_mm": avs_strength,
+                                    "shear_reinforcement_required": Vu > 0.5 * phi * Vc,
+                                    "minimum_stirrups_provided": True},
+            warnings=warnings,
         )
-    
-    def check_deflection(self,
-                        geometry: BeamGeometry,
-                        loads: BeamLoads,
-                        reinforcement: BeamReinforcement,
-                        beam_type: BeamType = BeamType.SIMPLY_SUPPORTED) -> DesignResult:
-        """
-        Check deflection according to ACI 318M-25
-        
-        Parameters:
-        -----------
-        geometry : BeamGeometry
-            Beam geometry
-        loads : BeamLoads
-            Applied loads
-        reinforcement : BeamReinforcement
-            Provided reinforcement
-        beam_type : BeamType
-            Beam support conditions
-            
-        Returns:
-        --------
-        DesignResult
-            Deflection check results
-        """
-        b = geometry.width  # mm
-        h = geometry.height  # mm
-        d = geometry.effective_depth  # mm
-        L = geometry.span_length  # mm
-        
-        # Service loads
-        w_dead = loads.dead_load  # kN/m
-        w_live = loads.live_load  # kN/m
-        w_total = w_dead + w_live  # kN/m
-        
-        # Convert to N/mm
-        w_dead_per_mm = w_dead * 1000 / 1000  # N/mm
-        w_live_per_mm = w_live * 1000 / 1000  # N/mm
-        w_total_per_mm = w_total * 1000 / 1000  # N/mm
-        
-        # Gross moment of inertia
-        Ig = b * h**3 / 12  # mm⁴
-        
-        # Calculate cracking moment
-        fr = self.concrete.modulus_of_rupture()  # MPa
-        yt = h / 2  # mm (distance to extreme tension fiber)
-        Mcr = fr * Ig / yt  # N⋅mm  (MPa·mm⁴/mm = N·mm)
-        
-        # Service moments
-        if beam_type == BeamType.SIMPLY_SUPPORTED:
-            M_dead = w_dead_per_mm * L**2 / 8  # N⋅mm
-            M_live = w_live_per_mm * L**2 / 8  # N⋅mm
-            M_total = w_total_per_mm * L**2 / 8  # N⋅mm
-        elif beam_type == BeamType.CONTINUOUS:
-            # Approximate for continuous beams
-            M_dead = w_dead_per_mm * L**2 / 10  # N⋅mm
-            M_live = w_live_per_mm * L**2 / 10  # N⋅mm
-            M_total = w_total_per_mm * L**2 / 10  # N⋅mm
-        else:  # Cantilever
-            M_dead = w_dead_per_mm * L**2 / 2  # N⋅mm
-            M_live = w_live_per_mm * L**2 / 2  # N⋅mm
-            M_total = w_total_per_mm * L**2 / 2  # N⋅mm
-        
-        # Calculate effective moment of inertia using ACI approach
-        # Assume tension reinforcement area for cracked section analysis
-        As = 1000  # mm² (placeholder - should come from actual reinforcement)
-        
-        # Cracked moment of inertia (simplified)
-        n = self.Es / self.Ec  # Modular ratio
-        rho = As / (b * d)
-        k = math.sqrt(2*rho*n + (rho*n)**2) - rho*n
-        Icr = b * d**3 * k**3 / 3 + n * As * (d - k*d)**2  # mm⁴
-        
-        # Effective moment of inertia (ACI 318M-25 Section 24.2.3)
-        if M_total <= Mcr:
-            Ie = Ig
-        else:
-            Ie = Icr + (Ig - Icr) * (Mcr / M_total)**3
-            Ie = max(Ie, Icr)  # Ie should not be less than Icr
-        
-        # Calculate deflections
-        if beam_type == BeamType.SIMPLY_SUPPORTED:
-            # Immediate deflection
-            delta_immediate = 5 * w_total_per_mm * L**4 / (384 * self.Ec * Ie)  # mm
-            
-            # Long-term deflection
-            # Sustained load deflection
-            delta_sustained = 5 * w_dead_per_mm * L**4 / (384 * self.Ec * Ie)  # mm
-            
-        elif beam_type == BeamType.CONTINUOUS:
-            # Approximate for continuous beams
-            delta_immediate = w_total_per_mm * L**4 / (384 * self.Ec * Ie)  # mm
-            delta_sustained = w_dead_per_mm * L**4 / (384 * self.Ec * Ie)  # mm
-            
-        else:  # Cantilever
-            delta_immediate = w_total_per_mm * L**4 / (8 * self.Ec * Ie)  # mm
-            delta_sustained = w_dead_per_mm * L**4 / (8 * self.Ec * Ie)  # mm
-        
-        # Time-dependent factor for sustained loads (ACI 318M-25 Section 24.2.4)
-        xi = 2.0  # For 5 years or more
-        # Compression reinforcement factor (simplified)
-        rho_prime = 0  # Assume no compression reinforcement
-        lambda_delta = xi / (1 + 50 * rho_prime)
-        
-        # Total long-term deflection
-        delta_longterm = delta_immediate + lambda_delta * delta_sustained
-        
-        # Deflection limits (ACI 318M-25 Table 24.2.2)
-        if beam_type == BeamType.CANTILEVER:
-            delta_limit_immediate = L / 180  # mm
-            delta_limit_longterm = L / 90   # mm
-        else:
-            delta_limit_immediate = L / 360  # mm
-            delta_limit_longterm = L / 240  # mm
-        
-        # Design checks
-        checks = [
-            DesignCheck("Immediate Deflection", delta_immediate <= delta_limit_immediate,
-                       f"Δi = {delta_immediate:.1f} mm ≤ L/{int(L/delta_limit_immediate)} = {delta_limit_immediate:.1f} mm"),
-            DesignCheck("Long-term Deflection", delta_longterm <= delta_limit_longterm,
-                       f"Δlt = {delta_longterm:.1f} mm ≤ L/{int(L/delta_limit_longterm)} = {delta_limit_longterm:.1f} mm")
-        ]
-        
-        # Results
-        feasible = all(check.passes for check in checks)
-        
-        results = {
-            'immediate_deflection_mm': delta_immediate,
-            'longterm_deflection_mm': delta_longterm,
-            'deflection_limit_immediate_mm': delta_limit_immediate,
-            'deflection_limit_longterm_mm': delta_limit_longterm,
-            'effective_moment_inertia_mm4': Ie,
-            'gross_moment_inertia_mm4': Ig,
-            'cracked_moment_inertia_mm4': Icr,
-            'cracking_moment_Nmm': Mcr,
-            'service_moment_Nmm': M_total
-        }
-        
-        return DesignResult(
-            is_adequate=feasible,
-            capacity_ratio=min(delta_limit_immediate/delta_immediate, 
-                             delta_limit_longterm/delta_longterm) if feasible else 0,
-            governing_check="Deflection",
-            design_details=results,
-            checks=checks
+
+def check_deflection(self, geometry: BeamGeometry, loads: BeamLoads,
+                         reinforcement: BeamReinforcement,
+                         beam_type: BeamType = BeamType.SIMPLY_SUPPORTED) -> DesignResult:
+        """Do NOT report fictitious passing deflection with placeholder As=1000."""
+        raise NotImplementedError(
+            "ACI 318M-25 deflection NOT VERIFIED: actual tension/compression bar "
+            "areas, cracked stiffness, serviceability combinations and sustained "
+            "load history are required; no placeholder reinforcement is allowed"
         )
-    
+
     def minimum_flexural_reinforcement_ratio(self, b: float, d: float) -> float:
         """
         Calculate minimum flexural reinforcement ratio
@@ -566,32 +301,21 @@ class ACI318M25BeamDesign(BeamDesign):
         
         return max(rho_min1, rho_min2)
     
-    def maximum_flexural_reinforcement_ratio(self) -> float:
-        """
-        Calculate maximum flexural reinforcement ratio
-        ACI 318M-25 Section 21.2.2
-        """
-        # For tension-controlled sections (ε_t ≥ 0.005)
-        beta1 = self.concrete.beta1()
-        rho_max = 0.75 * beta1 * 0.85 * self.fc / self.fy * \
-                  (600 / (600 + self.fy))
-        
-        return rho_max
-    
-    def minimum_shear_reinforcement_area(self, b: float) -> float:
-        """
-        Calculate minimum shear reinforcement area
-        ACI 318M-25 Section 9.6.3
-        """
-        # Av,min = max(0.35⋅b⋅s/fy, 0.083⋅√fc⋅b⋅s/fy)
-        # Return Av,min per unit spacing (Av,min/s)
-        sqrt_fc = math.sqrt(self.fc)
-        Av_min_over_s_1 = 0.35 * b / self.fy
-        Av_min_over_s_2 = 0.083 * sqrt_fc * b / self.fy
-        
-        # Return for unit spacing (s = 1 mm)
-        return max(Av_min_over_s_1, Av_min_over_s_2)
-    
+def maximum_flexural_reinforcement_ratio(self) -> float:
+        """Tension-controlled limit: epsilon_t >= fy/Es + 0.003, ACI 21.2.2."""
+        eps_limit = self.epsilon_ty + 0.003
+        c_over_d = self.epsilon_cu / (self.epsilon_cu + eps_limit)
+        return 0.85 * self.fc * self.concrete.beta1() * c_over_d / self.fy
+
+def minimum_shear_reinforcement_area(self, b: float,
+                                         stirrup_fy: Optional[float] = None) -> float:
+        """Av,min/s in mm2/mm, ACI 318M-25 Table 9.6.3.4, not Av per stirrup."""
+        validate_positive(b, "Web width")
+        fyt = min(self.fy, 420.0) if stirrup_fy is None else stirrup_fy
+        validate_positive(fyt, "Stirrup yield strength")
+        return max(0.062 * math.sqrt(self.fc) * b / fyt,
+                   0.35 * b / fyt)
+
     def flexural_capacity(self, b: float, d: float, As: float, phi: float) -> float:
         """
         Calculate flexural capacity of section
@@ -599,7 +323,7 @@ class ACI318M25BeamDesign(BeamDesign):
         Returns:
         --------
         float
-            Nominal moment capacity (N⋅mm)
+            Design moment strength phi*Mn (N.mm)
         """
         # Rectangular stress block analysis
         a = As * self.fy / (0.85 * self.fc * b)  # mm
@@ -650,7 +374,7 @@ class ACI318M25BeamDesign(BeamDesign):
                 kwargs['shear_ultimate'],
                 kwargs['longitudinal_steel']
             )
-            return result.checks
+            return result.strength_checks + result.detailing_checks
         else:
             raise ValueError("Insufficient parameters for strength check")
     
@@ -675,6 +399,6 @@ class ACI318M25BeamDesign(BeamDesign):
                 kwargs['reinforcement'],
                 kwargs.get('beam_type', BeamType.SIMPLY_SUPPORTED)
             )
-            return result.checks
+            return result.serviceability_checks
         else:
             raise ValueError("Insufficient parameters for serviceability check")
