@@ -1,0 +1,27 @@
+name: ACI beam safety regression
+
+on:
+  push:
+    branches: [fix/library-audit]
+  pull_request:
+    paths:
+      - 'structural-design-standards/**'
+      - '.github/workflows/beam-safety.yml'
+
+jobs:
+  beam-safety:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: structural-design-standards
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install package and pytest
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest
+      - name: Run independent beam regression tests
+        run: python -m pytest -q -o addopts='' tests/test_beam_safety_regressions.py
