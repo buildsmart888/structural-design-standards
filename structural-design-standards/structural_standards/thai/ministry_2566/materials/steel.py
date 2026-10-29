@@ -153,6 +153,7 @@ class ThaiSteel(SteelMaterial):
             props = self.THAI_STEEL_GRADES[grade_enum]
             fy = props.fy_mpa
             fu = props.fu_mpa
+            grade = props.grade  # canonical case, never a mismatched grade key
             
         elif fy is not None:
             validate_positive(fy, "fy")
